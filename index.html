@@ -146,6 +146,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   color:var(--text-dim);
   line-height:1.5;
 }
+
+/* -- MULTI-SELECCION DE INDICADORES -- */
+.nav-check{width:13px;height:13px;flex-shrink:0;cursor:pointer;accent-color:var(--accent);margin:0}
+.nav-item.selected{background:rgba(0,212,170,.06)}
+.nav-item.selected .nav-text{color:var(--accent)}
+.multi-banner{display:flex;align-items:center;gap:6px;margin-left:4px}
+.multi-count{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:600;white-space:nowrap}
+.btn-clear-sel{padding:5px 10px;background:transparent;border:1px solid var(--border-hi);border-radius:4px;font-family:var(--mono);font-size:10px;color:var(--text-dim);cursor:pointer;white-space:nowrap}
+.btn-clear-sel:hover{border-color:var(--danger);color:var(--danger)}
+.panel.active + .panel.active{border-top:1px solid var(--border);margin-top:4px;padding-top:18px}
 </style>
 </head>
 <body>
@@ -2230,6 +2240,106 @@ async function runRatios(tickers){
   }catch(e){hideL('ratios');showE('ratios',e.message);}
 }
 
+
+/* ============ MULTI-SELECCION DE INDICADORES ============ */
+(function(){
+  const ALL = {
+    'covarianza':runCovarianza,'pearson':runPearson,'pearson-nl':runPearsonNL,
+    'frobenius':runFrobenius,'macd':runMACD,'estocastico':runEstocastico,
+    'cci':runCCI,'hurst':runHurst,'elliott':runElliott,
+    'var-param':runVarParam,'var-hist':runVarHist,'var-mc':runVarMC,'var-comp':runVarComp,
+    'bhb':runBHB,'bf':runBF,'capm':runCAPM,'frontera':runFrontera,
+    'cml-sim':runCMLSim,'cml-opt':runCMLOpt,'upside':runUpside,'upside-cap':runUpsideCap,
+    'rsi':runRSI,'bollinger':runBollinger,'keltner':runKeltner,
+    'obv':runOBV,'mfi':runMFI,'impulso':runImpulso,'aroon':runAroon,
+    'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios
+  };
+  const selected = new Set();
+  let countEl = null;
+
+  function refresh(){
+    const btn = document.getElementById('btn-run');
+    if(btn) btn.textContent = selected.size>0 ? ('▶ EJECUTAR ('+selected.size+')') : '▶ EJECUTAR';
+    if(countEl) countEl.textContent = selected.size>0 ? (selected.size+' seleccionados') : '';
+    const clr = document.getElementById('btn-clear-sel');
+    if(clr) clr.style.display = selected.size>0 ? 'inline-block' : 'none';
+  }
+
+  function clearSel(){
+    selected.clear();
+    document.querySelectorAll('.nav-check').forEach(c=>c.checked=false);
+    document.querySelectorAll('.nav-item.selected').forEach(n=>n.classList.remove('selected'));
+    refresh();
+  }
+
+  // Inyectar un checkbox en cada indicador del menu
+  document.querySelectorAll('.nav-item').forEach(item=>{
+    const id = (item.id||'').replace(/^nav-/,'');
+    if(!ALL[id]) return;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'nav-check';
+    cb.title = 'Agregar a la seleccion multiple';
+    cb.addEventListener('click', function(e){
+      e.stopPropagation();              // no disparar switchPanel
+      if(cb.checked) selected.add(id); else selected.delete(id);
+      item.classList.toggle('selected', cb.checked);
+      refresh();
+    });
+    item.insertBefore(cb, item.firstChild);
+  });
+
+  // Contador + boton limpiar al lado de EJECUTAR
+  const runBtn = document.getElementById('btn-run');
+  if(runBtn && runBtn.parentNode){
+    const banner = document.createElement('div');
+    banner.className = 'multi-banner';
+    countEl = document.createElement('span');
+    countEl.className = 'multi-count';
+    const clr = document.createElement('button');
+    clr.id = 'btn-clear-sel';
+    clr.className = 'btn-clear-sel';
+    clr.type = 'button';
+    clr.textContent = '✕ limpiar';
+    clr.style.display = 'none';
+    clr.addEventListener('click', clearSel);
+    banner.appendChild(countEl);
+    banner.appendChild(clr);
+    runBtn.parentNode.insertBefore(banner, runBtn.nextSibling);
+  }
+
+  // Override de runAnalysis: si hay seleccion multiple corre todos los paneles
+  const prevRun = runAnalysis;
+  runAnalysis = async function(){
+    if(selected.size === 0){ return prevRun(); }   // comportamiento normal (panel unico)
+
+    const raw = document.getElementById('input-tickers').value.trim();
+    if(!raw){ alert('Ingresa al menos un ticker.'); return; }
+    if(!apiKey){ alert('Configura la API key primero.'); return; }
+    const tickers = raw.split(/[\s,]+/).filter(Boolean).map(t=>t.toUpperCase());
+
+    const ids = [...selected];
+    // Mostrar apilados SOLO los paneles seleccionados
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    ids.forEach(id=>{ const p=document.getElementById('panel-'+id); if(p) p.classList.add('active'); });
+
+    const btn = document.getElementById('btn-run');
+    if(btn) btn.disabled = true;
+    let done = 0;
+    for(const id of ids){
+      setStatus('⚡ procesando '+(++done)+'/'+ids.length+'...','s-warn');
+      const fn = ALL[id];
+      if(!fn) continue;
+      try { await fn(tickers); }
+      catch(e){ try{ showE(id, e.message); hideL(id); }catch(_){} }
+    }
+    if(btn) btn.disabled = false;
+    setStatus('⬡ listo','s-ok');
+  };
+
+  refresh();
+})();
 </script>
 </body>
 </html>
