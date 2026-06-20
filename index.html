@@ -91,7 +91,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:3px}
-
 /* ── TOOLTIP SIDEBAR ─────────────────────────────────────────── */
 .nav-item{position:relative}
 .nav-tooltip{
@@ -120,7 +119,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   border-right-color:#2E3550;
 }
 .nav-item:hover .nav-tooltip{display:block}
-
 /* ── PANEL DESCRIPTION ───────────────────────────────────────── */
 .panel-desc{
   background:rgba(0,212,170,.05);
@@ -146,7 +144,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   color:var(--text-dim);
   line-height:1.5;
 }
-
 /* -- MULTI-SELECCION DE INDICADORES -- */
 .nav-check{width:13px;height:13px;flex-shrink:0;cursor:pointer;accent-color:var(--accent);margin:0}
 .nav-item.selected{background:rgba(0,212,170,.06)}
@@ -156,7 +153,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 .btn-clear-sel{padding:5px 10px;background:transparent;border:1px solid var(--border-hi);border-radius:4px;font-family:var(--mono);font-size:10px;color:var(--text-dim);cursor:pointer;white-space:nowrap}
 .btn-clear-sel:hover{border-color:var(--danger);color:var(--danger)}
 .panel.active + .panel.active{border-top:1px solid var(--border);margin-top:4px;padding-top:18px}
-
 /* -- CONCLUSION INTEGRADA -- */
 .multi-conclusion{margin:18px 20px 0;background:linear-gradient(180deg,rgba(245,166,35,.09),rgba(245,166,35,.02));border:1px solid rgba(245,166,35,.35);border-left:3px solid var(--accent2);border-radius:8px;padding:16px 20px}
 .multi-conclusion h3{font-family:var(--mono);font-size:11px;color:var(--accent2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
@@ -223,6 +219,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   <div class="sb-section"><div class="sb-label">Fundamentals</div>
     <div class="nav-item" id="nav-estados" onclick="switchPanel('estados')"><span class="nav-icon">📊</span><span class="nav-text">Estados Contables</span><span class="nav-tag">31</span><span class="nav-tooltip">Balance General, Estado de Resultados y Flujo de Caja vía FMP API (requiere API key de FMP, gratis).</span></div>
     <div class="nav-item" id="nav-ratios" onclick="switchPanel('ratios')"><span class="nav-icon">×</span><span class="nav-text">Portfolio Ratios</span><span class="nav-tag">32</span><span class="nav-tooltip">P/E, P/B, P/CF y EV/EBITDA TTM desde FMP para comparar valuación relativa entre activos.</span></div>
+  </div>
+  <div class="sb-section"><div class="sb-label">Cartera</div>
+    <div class="nav-item" id="nav-cartera" onclick="switchPanel('cartera')"><span class="nav-icon">◎</span><span class="nav-text">Resumen de Cartera</span><span class="nav-tag">37</span><span class="nav-tooltip">Performance completa: equity curve vs benchmark, Sharpe rolling 3M, contribución al riesgo y distribución de retornos.</span></div>
+    <div class="nav-item" id="nav-constructor" onclick="switchPanel('constructor')"><span class="nav-icon">⊕</span><span class="nav-text">Constructor de Cartera</span><span class="nav-tag">38</span><span class="nav-tooltip">Armado para el mercado argentino (BYMA): definís objetivo, horizonte, tolerancia al riesgo y capital → allocation en Lecap, CER, soberanos HD y ONs con instrumentos concretos.</span></div>
   </div>
 </nav>
 <main class="main">
@@ -715,7 +715,108 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
     <div class="insight-box"><h3>⬡ Interpretación · Claude</h3><div class="insight-content" id="insight-ratios">—</div></div>
   </div>
 </div>
+<!-- 38 CONSTRUCTOR DE CARTERA -->
+<div class="panel" id="panel-constructor">
+  <div class="loading" id="loading-constructor"><div class="loader-bar"><div class="loader-fill"></div></div><div class="loading-txt">ARMANDO CARTERA · CALCULANDO ALLOCATION ÓPTIMA...</div></div>
+  <div class="err-box" id="error-constructor"></div>
+  <div id="results-constructor" style="display:none;flex-direction:column;gap:14px">
+    <div class="res-header">
+      <span class="res-title">Constructor de Cartera · Mercado Argentino<span class="res-ticker" id="rt-constructor"></span></span>
+      <span class="res-ts" id="ts-constructor"></span>
+    </div>
+    <div class="panel-desc"><span class="panel-desc-label">qué hace</span><span class="panel-desc-text">A partir de tu objetivo, horizonte y tolerancia al riesgo, construye una allocation estratégica entre Lecap/Boncap, CER, soberanos hard dollar y ONs corporativas, con instrumentos concretos cotizando en BYMA.</span></div>
 
+    <!-- WIZARD: 7 preguntas -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="param-chip" style="min-width:190px">
+        <label>① ¿Para qué es esta plata?</label>
+        <select id="p-obj" style="width:100%">
+          <option value="preservar">Preservar capital</option>
+          <option value="renta">Generar renta mensual</option>
+          <option value="crecimiento" selected>Crecimiento patrimonial</option>
+          <option value="meta">Meta en plazo fijo (casa, viaje, etc.)</option>
+        </select>
+      </div>
+      <div class="param-chip">
+        <label>② Horizonte temporal</label>
+        <select id="p-hor">
+          <option value="corto">Corto (0–2 años)</option>
+          <option value="mediano" selected>Mediano (3–7 años)</option>
+          <option value="largo">Largo (10+ años)</option>
+        </select>
+      </div>
+      <div class="param-chip">
+        <label>③ Tolerancia emocional</label>
+        <select id="p-tol">
+          <option value="10">Bajo — aguanto -10% máx</option>
+          <option value="20" selected>Medio — aguanto -20% máx</option>
+          <option value="40">Alto — aguanto -40% máx</option>
+        </select>
+      </div>
+      <div class="param-chip">
+        <label>④ Capital total (USD)</label>
+        <input id="p-cap" type="number" value="50000" min="1000" step="1000" style="width:120px">
+      </div>
+      <div class="param-chip">
+        <label>⑤ Liquidez necesaria (%)</label>
+        <input id="p-liq" type="number" value="20" min="0" max="80" step="5" style="width:80px">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">% que podés necesitar en 12m</span>
+      </div>
+      <div class="param-chip">
+        <label>⑥ Retorno objetivo (% USD/año)</label>
+        <input id="p-ret" type="number" value="10" min="1" max="30" step="1" style="width:80px">
+      </div>
+      <div class="param-chip">
+        <label>⑦ Max Drawdown tolerado (%)</label>
+        <input id="p-dd" type="number" value="20" min="5" max="60" step="5" style="width:80px">
+      </div>
+    </div>
+    <div>
+      <button class="btn-run" onclick="runConstructor([])">⊕ CONSTRUIR CARTERA</button>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-left:10px">No requiere tickers — usá el botón de acá</span>
+    </div>
+
+    <!-- RESULTADO: solo visible después de construir -->
+    <div id="constructor-resultado" style="display:none;flex-direction:column;gap:14px">
+      <div id="constructor-perfil" style="padding:10px 16px;background:rgba(0,212,170,.05);border:1px solid rgba(0,212,170,.2);border-radius:6px;font-family:var(--mono);font-size:13px"></div>
+      <div class="metrics-row" id="metrics-constructor"></div>
+      <div class="chart-grid">
+        <div class="chart-box"><div class="chart-box-title">Allocation Estratégica</div><div id="chart-constructor-pie" style="height:320px"></div></div>
+        <div class="chart-box"><div class="chart-box-title">Retorno Esperado vs Riesgo</div><div id="chart-constructor-bubble" style="height:320px"></div></div>
+      </div>
+      <div class="chart-box">
+        <div class="chart-box-title">Instrumentos Sugeridos por Categoría · BYMA</div>
+        <table class="data-table">
+          <thead><tr><th>Categoría</th><th>Ticker</th><th>Instrumento</th><th>Tipo</th><th>TIR / Rendimiento ref.</th><th>Monto USD</th></tr></thead>
+          <tbody id="tbody-constructor"></tbody>
+        </table>
+      </div>
+      <div id="constructor-warning" style="display:none;background:#1A1200;border:1px solid #3A2800;border-radius:6px;padding:12px 16px;font-family:var(--mono);font-size:11px;color:var(--accent2)"></div>
+      <div class="insight-box"><h3>⬡ Análisis · Claude</h3><div class="insight-content" id="insight-constructor">—</div></div>
+    </div>
+  </div>
+</div>
+<!-- 37 RESUMEN DE CARTERA -->
+<div class="panel" id="panel-cartera">
+  <div class="loading" id="loading-cartera"><div class="loader-bar"><div class="loader-fill"></div></div><div class="loading-txt">DESCARGANDO DATOS · CALCULANDO MÉTRICAS DE CARTERA...</div></div>
+  <div class="err-box" id="error-cartera"></div>
+  <div id="results-cartera" style="display:none;flex-direction:column;gap:14px">
+    <div class="res-header"><span class="res-title">Resumen de Cartera<span class="res-ticker" id="rt-cartera"></span></span><span class="res-ts" id="ts-cartera"></span></div>
+    <div class="panel-desc"><span class="panel-desc-label">qué muestra</span><span class="panel-desc-text">Performance completa del portfolio: equity curve vs benchmark (base 100), Sharpe rolling 3M, contribución al riesgo vs peso por activo, y distribución de retornos diarios.</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="param-chip"><label>Pesos % (mismo orden que tickers)</label><input id="p-pesos" type="text" placeholder="40,30,30 (vacío=equitativo)" style="width:200px"></div>
+      <div class="param-chip"><label>Benchmark</label><input id="p-bench" type="text" value="SPY" style="width:80px"></div>
+    </div>
+    <div class="metrics-row" id="metrics-cartera"></div>
+    <div class="chart-grid">
+      <div class="chart-box" style="grid-column:1/-1"><div class="chart-box-title">Equity Curve — Portfolio vs Benchmark (Base 100)</div><div id="chart-cartera-equity" style="height:300px"></div></div>
+      <div class="chart-box"><div class="chart-box-title">Sharpe Rolling 3 Meses</div><div id="chart-cartera-rollsharpe" style="height:260px"></div></div>
+      <div class="chart-box"><div class="chart-box-title">Contribución al Riesgo vs Peso</div><div id="chart-cartera-risk" style="height:260px"></div></div>
+      <div class="chart-box" style="grid-column:1/-1"><div class="chart-box-title">Distribución de Retornos Diarios</div><div id="chart-cartera-dist" style="height:240px"></div></div>
+    </div>
+    <div class="insight-box"><h3>⬡ Interpretación · Claude</h3><div class="insight-content" id="insight-cartera">—</div></div>
+  </div>
+</div>
 </main>
 </div>
 <script>
@@ -731,7 +832,6 @@ const PLT = {
 };
 const CFG={responsive:true,displayModeBar:false};
 const C=['#00D4AA','#F5A623','#E05252','#7B8CDE','#A8E6CF','#FFB347','#87CEEB','#DDA0DD','#98FB98','#F08080','#B0C4DE'];
-
 /* ═══════════════════════════ API KEY ═══════════════════════════ */
 function saveApiKey(){
   const v=document.getElementById('api-key-input').value.trim();
@@ -746,7 +846,6 @@ if(apiKey){
   setStatus('⬡ listo','s-ok');
 }
 function setStatus(t,c){const e=document.getElementById('status-text');e.textContent=t;e.className=c}
-
 /* ═══════════════════════════ NAVEGACIÓN ═══════════════════════════ */
 let currentPanel='covarianza';
 function switchPanel(id){
@@ -758,7 +857,6 @@ function switchPanel(id){
   currentPanel=id;
 }
 switchPanel('covarianza');
-
 /* ═══════════════════════════ CLAUDE API ═══════════════════════════ */
 async function callClaude(sys,usr){
   if(!apiKey)throw new Error('Configurá la API key primero.');
@@ -775,7 +873,6 @@ async function callClaude(sys,usr){
 }
 const SYS=`Sos analista cuantitativo experto en mercados financieros. Respondés en español, conciso y técnico.
 Usá HTML embebido: <p>, <strong>, <ul><li>. Sin markdown. Máximo 4 párrafos cortos.`;
-
 /* ═══════════════════════════ UI HELPERS ═══════════════════════════ */
 function showL(id){document.getElementById('loading-'+id).classList.add('active')}
 function hideL(id){document.getElementById('loading-'+id).classList.remove('active')}
@@ -801,7 +898,6 @@ function L(extra={}){return{...PLT,...extra,
   xaxis:{...PLT.xaxis,...(extra.xaxis||{})},
   yaxis:{...PLT.yaxis,...(extra.yaxis||{})}}}
 function setInsight(id,html){document.getElementById('insight-'+id).innerHTML=html}
-
 /* ═══════════════════════════ MOCK PRICES ═══════════════════════════ */
 function genPrices(tickers,n=504,corrF=0.6){
   const dates=[];
@@ -824,7 +920,6 @@ function genPrices(tickers,n=504,corrF=0.6){
   });
   return res;
 }
-
 /* ═══════════════════════════ MATH ═══════════════════════════ */
 const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
 const std=a=>{const m=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length)};
@@ -839,7 +934,6 @@ const normPDF=(x,mu,s)=>Math.exp(-.5*((x-mu)/s)**2)/(s*Math.sqrt(2*Math.PI));
 const zScore=conf=>conf>=0.99?-2.3263:conf>=0.95?-1.6449:-1.2816;
 const randn=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
 const simNorm=(mu,s,n)=>Array.from({length:n},()=>mu+s*randn());
-
 function hurstExp(ts){
   if(ts.length<20)return NaN;
   const N=ts.length,lags=Array.from({length:Math.max(1,Math.floor(N/2)-2)},(_,i)=>i+2);
@@ -861,7 +955,6 @@ function findPeaksValleys(arr,minDist=15){
   }
   return{peaks,valleys};
 }
-
 /* ═══════════════════════════ DISPATCHER ═══════════════════════════ */
 function runAnalysis(){
   const raw=document.getElementById('input-tickers').value.trim();
@@ -882,7 +975,6 @@ function runAnalysis(){
   if(fn)fn(tickers).catch(e=>{showE(currentPanel,e.message);hideL(currentPanel)})
     .finally(()=>{document.getElementById('btn-run').disabled=false;setStatus('⬡ listo','s-ok')});
 }
-
 async function baseRun(id,tickers,fn){
   showL(id);hideE(id);hideR(id);
   try{
@@ -910,7 +1002,6 @@ async function baseRun(id,tickers,fn){
     hideL(id); showE(id, e.message); throw e;
   }
 }
-
 /* ═══════════════════════════ 01 COVARIANZA ═══════════════════════════ */
 async function runCovarianza(tickers){
   await baseRun('covarianza',tickers,async(id,tickers,data)=>{
@@ -933,7 +1024,6 @@ async function runCovarianza(tickers){
     setInsight('covarianza',insight);
   });
 }
-
 /* ═══════════════════════════ 02 PEARSON ═══════════════════════════ */
 async function runPearson(tickers){
   await baseRun('pearson',tickers,async(id,tickers,data)=>{
@@ -955,7 +1045,6 @@ async function runPearson(tickers){
     setInsight('pearson',insight);
   });
 }
-
 /* ═══════════════════════════ 03 PEARSON NL ═══════════════════════════ */
 async function runPearsonNL(tickers){
   await baseRun('pearson-nl',tickers,async(id,tickers,data)=>{
@@ -993,7 +1082,6 @@ async function runPearsonNL(tickers){
     setInsight('pearson-nl',insight);
   });
 }
-
 /* ═══════════════════════════ 04 FROBENIUS ═══════════════════════════ */
 async function runFrobenius(tickers){
   await baseRun('frobenius',tickers,async(id,tickers,data)=>{
@@ -1017,7 +1105,6 @@ async function runFrobenius(tickers){
     setInsight('frobenius',insight);
   });
 }
-
 /* ═══════════════════════════ 05 MACD ═══════════════════════════ */
 async function runMACD(tickers){
   await baseRun('macd',tickers,async(id,tickers,data)=>{
@@ -1051,7 +1138,6 @@ async function runMACD(tickers){
     setInsight('macd',insight);
   });
 }
-
 /* ═══════════════════════════ 06 ESTOCÁSTICO ═══════════════════════════ */
 async function runEstocastico(tickers){
   await baseRun('estocastico',tickers,async(id,tickers,data)=>{
@@ -1092,7 +1178,6 @@ async function runEstocastico(tickers){
     setInsight('estocastico',insight);
   });
 }
-
 /* ═══════════════════════════ 07 CCI ═══════════════════════════ */
 async function runCCI(tickers){
   await baseRun('cci',tickers,async(id,tickers,data)=>{
@@ -1128,7 +1213,6 @@ async function runCCI(tickers){
     setInsight('cci',insight);
   });
 }
-
 /* ═══════════════════════════ 08 HURST ═══════════════════════════ */
 async function runHurst(tickers){
   await baseRun('hurst',tickers,async(id,tickers,data)=>{
@@ -1160,7 +1244,6 @@ async function runHurst(tickers){
     setInsight('hurst',insight);
   });
 }
-
 /* ═══════════════════════════ 09 ELLIOTT ═══════════════════════════ */
 async function runElliott(tickers){
   await baseRun('elliott',tickers,async(id,tickers,data)=>{
@@ -1188,7 +1271,6 @@ async function runElliott(tickers){
     setInsight('elliott',insight);
   });
 }
-
 /* ═══════════════════════════ 10 VaR PARAM ═══════════════════════════ */
 async function runVarParam(tickers){
   await baseRun('var-param',tickers,async(id,tickers,data)=>{
@@ -1224,7 +1306,6 @@ async function runVarParam(tickers){
     setInsight('var-param',insight);
   });
 }
-
 /* ═══════════════════════════ 11 VaR HIST ═══════════════════════════ */
 async function runVarHist(tickers){
   await baseRun('var-hist',tickers,async(id,tickers,data)=>{
@@ -1256,7 +1337,6 @@ async function runVarHist(tickers){
     setInsight('var-hist',insight);
   });
 }
-
 /* ═══════════════════════════ 12 VaR MC ═══════════════════════════ */
 async function runVarMC(tickers){
   await baseRun('var-mc',tickers,async(id,tickers,data)=>{
@@ -1293,7 +1373,6 @@ async function runVarMC(tickers){
     setInsight('var-mc',insight);
   });
 }
-
 /* ═══════════════════════════ 13 VaR COMP ═══════════════════════════ */
 async function runVarComp(tickers){
   await baseRun('var-comp',tickers,async(id,tickers,data)=>{
@@ -1333,7 +1412,6 @@ async function runVarComp(tickers){
     setInsight('var-comp',insight);
   });
 }
-
 /* ═══════════════════════════ 14 BHB ═══════════════════════════ */
 async function runBHB(tickers){
   await baseRun('bhb',tickers,async(id,tickers,data)=>{
@@ -1365,7 +1443,6 @@ async function runBHB(tickers){
     setInsight('bhb',insight);
   });
 }
-
 /* ═══════════════════════════ 15 BF ═══════════════════════════ */
 async function runBF(tickers){
   await baseRun('bf',tickers,async(id,tickers,data)=>{
@@ -1397,7 +1474,6 @@ async function runBF(tickers){
     setInsight('bf',insight);
   });
 }
-
 /* ═══════════════════════════ 16 CAPM ═══════════════════════════ */
 async function runCAPM(tickers){
   await baseRun('capm',tickers,async(id,tickers,data)=>{
@@ -1437,7 +1513,6 @@ async function runCAPM(tickers){
     setInsight('capm',insight);
   });
 }
-
 /* ═══════════════════════════ 17 FRONTERA ═══════════════════════════ */
 async function mcPortfolios(tickers,data,nSim=3000){
   const allR=tickers.map(t=>data[t].returns);
@@ -1458,7 +1533,6 @@ async function mcPortfolios(tickers,data,nSim=3000){
   }
   return{vols,rets,sharpes,bestW,bestR,bestV,bestS,retAnn,volAnn,covM};
 }
-
 async function runFrontera(tickers){
   await baseRun('frontera',tickers,async(id,tickers,data)=>{
     const {vols,rets,sharpes,bestW,bestR,bestV,bestS,retAnn,volAnn}=await mcPortfolios(tickers,data,3000);
@@ -1479,7 +1553,6 @@ async function runFrontera(tickers){
     setInsight('frontera',insight);
   });
 }
-
 /* ═══════════════════════════ 18 CML SIM ═══════════════════════════ */
 async function runCMLSim(tickers){
   await baseRun('cml-sim',tickers,async(id,tickers,data)=>{
@@ -1505,7 +1578,6 @@ async function runCMLSim(tickers){
     setInsight('cml-sim',insight);
   });
 }
-
 /* ═══════════════════════════ 19 CML OPT ═══════════════════════════ */
 async function runCMLOpt(tickers){
   await baseRun('cml-opt',tickers,async(id,tickers,data)=>{
@@ -1532,7 +1604,6 @@ async function runCMLOpt(tickers){
     setInsight('cml-opt',insight);
   });
 }
-
 /* ═══════════════════════════ 20 UPSIDE ═══════════════════════════ */
 async function runUpside(tickers){
   await baseRun('upside',tickers,async(id,tickers,data)=>{
@@ -1569,7 +1640,6 @@ async function runUpside(tickers){
     setInsight('upside',insight);
   });
 }
-
 /* ═══════════════════════════ 21 UPSIDE CAP ═══════════════════════════ */
 async function runUpsideCap(tickers){
   await baseRun('upside-cap',tickers,async(id,tickers,data)=>{
@@ -1615,15 +1685,12 @@ async function runUpsideCap(tickers){
     setInsight('upside-cap',insight);
   });
 }
-
 /* ═══════════════════════════════════════════════════════════════
    MÓDULOS 22-32 — DATOS REALES + INDICADORES TÉCNICOS
    ═══════════════════════════════════════════════════════════════ */
-
 /* ────────────────────────────────────────────────────────────────
    REAL DATA LAYER — Yahoo Finance v8 (CORS ok desde browser)
    ──────────────────────────────────────────────────────────────── */
-
 /* ── YAHOO FINANCE PARSER ──────────────────────────────────────── */
 function parseYFResponse(json, ticker){
   const result = json?.chart?.result?.[0];
@@ -1644,21 +1711,18 @@ function parseYFResponse(json, ticker){
     ticker
   };
 }
-
 /* ── FETCH CON REINTENTOS Y PROXY CORS ─────────────────────────── */
 async function fetchYahoo(ticker, period='2y'){
   const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${period}&interval=1d&includePrePost=false`;
   const yfUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?range=${period}&interval=1d&includePrePost=false`;
   const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(yfUrl)}`;
   const proxy2 = `https://corsproxy.io/?${encodeURIComponent(yfUrl2)}`;
-
   const attempts = [
     { url: yfUrl,   label: 'Yahoo directo'   },
     { url: proxy,   label: 'allorigins proxy' },
     { url: proxy2,  label: 'corsproxy.io'    },
     { url: yfUrl2,  label: 'Yahoo query2'    },
   ];
-
   let lastErr = '';
   for(const { url, label } of attempts){
     try{
@@ -1675,7 +1739,6 @@ async function fetchYahoo(ticker, period='2y'){
   }
   throw new Error(`No se pudo obtener ${ticker}. Verificá el ticker y tu conexión. (${lastErr})`);
 }
-
 async function fetchMultiYahoo(tickers, period='2y'){
   // Sequential fetches to avoid triggering rate limits
   const results = [];
@@ -1696,27 +1759,372 @@ async function fetchMultiYahoo(tickers, period='2y'){
   if(errs.length) console.warn('Tickers con error:', errs.map(e=>e.ticker));
   return ok;
 }
-
 function getFmpKey(){
   const k1=document.getElementById('p-fmp-key')?.value.trim();
   const k2=document.getElementById('p-fmp-key2')?.value.trim();
   return k1||k2||sessionStorage.getItem('fmp_key')||'';
 }
-
 function saveFmpKey(key){
   if(key) sessionStorage.setItem('fmp_key',key);
+}
+/* ════════════════════════════════════════════════════════════════
+   38 — CONSTRUCTOR DE CARTERA
+   ════════════════════════════════════════════════════════════════ */
+async function runConstructor(_tickers){
+  const id='constructor';
+  showL(id); hideE(id); showR(id);
+  document.getElementById('constructor-resultado').style.display='none';
+  try{
+    const obj  = document.getElementById('p-obj').value;
+    const hor  = document.getElementById('p-hor').value;
+    const tol  = parseInt(document.getElementById('p-tol').value)||20;
+    const cap  = parseFloat(document.getElementById('p-cap').value)||50000;
+    const liq  = parseFloat(document.getElementById('p-liq').value)||20;
+    const ret  = parseFloat(document.getElementById('p-ret').value)||10;
+    const dd   = parseFloat(document.getElementById('p-dd').value)||20;
+
+    // base matrices by objective
+    const base = {
+      preservar:   {mm:30, lecap:40, cer:20, hd:5,  on:5},
+      renta:       {mm:10, lecap:30, cer:20, hd:20, on:20},
+      crecimiento: {mm:5,  lecap:20, cer:20, hd:35, on:20},
+      meta:        {mm:20, lecap:35, cer:25, hd:10, on:10},
+    };
+    let w = {...(base[obj]||base['crecimiento'])};
+
+    // horizonte adjustment
+    if(hor==='corto'){ w.mm+=10; w.lecap+=10; w.hd-=15; w.on-=5; }
+    else if(hor==='largo'){ w.mm-=5; w.lecap-=5; w.hd+=5; w.cer+=5; }
+
+    // tolerance adjustment
+    if(tol<=10){ w.mm+=10; w.lecap+=10; w.hd-=15; w.cer+=5; w.on-=10; }
+    else if(tol>=40){ w.mm-=5; w.lecap-=10; w.hd+=10; w.on+=5; }
+
+    // liquidity adjustment
+    const liqExtra=Math.max(0,liq-20);
+    if(liqExtra>0){ w.mm+=liqExtra*0.6; w.lecap+=liqExtra*0.4; w.hd-=liqExtra*0.7; w.on-=liqExtra*0.3; }
+
+    // normalize to 100
+    const keys=['mm','lecap','cer','hd','on'];
+    keys.forEach(k=>{w[k]=Math.max(0,w[k]);});
+    const tot=keys.reduce((s,k)=>s+w[k],0);
+    keys.forEach(k=>{w[k]=Math.round(w[k]/tot*100);});
+    const diff=100-keys.reduce((s,k)=>s+w[k],0);
+    w['hd']+=diff;
+
+    // expected returns/risk per category (USD equiv estimates)
+    const exp={
+      mm:    {ret:3,  vol:1,  label:'Money Market / Caución'},
+      lecap: {ret:8,  vol:6,  label:'Tasa Fija ARS (Lecap/Boncap)'},
+      cer:   {ret:6,  vol:5,  label:'CER / Inflación-linked'},
+      hd:    {ret:14, vol:20, label:'Soberanos Hard Dollar'},
+      on:    {ret:9,  vol:8,  label:'ONs Corporativas'},
+    };
+
+    // portfolio blend metrics
+    const portRet=keys.reduce((s,k)=>s+w[k]/100*exp[k].ret,0);
+    const portVol=Math.sqrt(keys.reduce((s,k)=>s+Math.pow(w[k]/100*exp[k].vol,2),0));
+    const sharpe=(portRet-4.5)/portVol;
+    const varP=portVol*1.645;
+    const maxDD=portVol*2.2;
+
+    // instruments per category (BYMA)
+    const instruments={
+      mm:[
+        {ticker:'FIMA GB', name:'FCI Fima Premium (Money Market)',    tipo:'FCI Money Market',   tir:'ref 40-50% TNA ARS'},
+        {ticker:'CAUROB',  name:'Caución Bursátil BYMA 1-7d',         tipo:'Caución BYMA',        tir:'~TAMAR - corto plazo'},
+      ],
+      lecap:[
+        {ticker:'S31M6',   name:'LECAP Vto. Marzo 2026',              tipo:'Letra Capitalizable', tir:'~3.0% TEM'},
+        {ticker:'T17O6',   name:'LECAP Vto. Oct 2026',                tipo:'Letra Capitalizable', tir:'~2.8% TEM'},
+        {ticker:'T30E7',   name:'BONCAP Vto. Ene 2027',               tipo:'Bono Capitalizable',  tir:'~2.7% TEM'},
+      ],
+      cer:[
+        {ticker:'X18A6',   name:'LECER Vto. Abr 2026',                tipo:'Letra CER',           tir:'CER + 3%'},
+        {ticker:'TX26',    name:'BONCER Vto. Nov 2026',                tipo:'Bono CER',            tir:'CER + 5%'},
+        {ticker:'DICP',    name:'BONCER Vto. Dic 2033',                tipo:'Bono CER largo',      tir:'CER + 7%'},
+      ],
+      hd:[
+        {ticker:'AL30',    name:'Bono Soberano 2030 (Ley Argentina)', tipo:'Hard Dollar',         tir:'~12-15% TIR USD'},
+        {ticker:'GD30',    name:'Bono Soberano 2030 (Ley NY)',        tipo:'Hard Dollar',         tir:'~12-15% TIR USD'},
+        {ticker:'AE38',    name:'Bono Soberano 2038',                 tipo:'Hard Dollar largo',   tir:'~13-16% TIR USD'},
+      ],
+      on:[
+        {ticker:'YCA6O',   name:'ON YPF 2026 Hard Dollar',            tipo:'ON Senior',           tir:'~8-10% TIR USD'},
+        {ticker:'PAM0',    name:'ON Pampa Energía Hard Dollar',        tipo:'ON Senior',           tir:'~7-9% TIR USD'},
+        {ticker:'TLCMO',   name:'ON Telecom 2026 Hard Dollar',         tipo:'ON Senior',           tir:'~7-9% TIR USD'},
+      ],
+    };
+
+    const perfilMap={preservar:'Conservador · Preservación',renta:'Moderado · Generación de Renta',crecimiento:'Crecimiento Patrimonial',meta:'Objetivo Específico'};
+    const horMap={corto:'Corto Plazo (0–2a)',mediano:'Mediano Plazo (3–7a)',largo:'Largo Plazo (10a+)'};
+    document.getElementById('constructor-perfil').innerHTML=
+      `<b>Perfil:</b> ${perfilMap[obj]||obj} &nbsp;·&nbsp; ${horMap[hor]||hor} &nbsp;·&nbsp; Tolerancia: ${tol}% drawdown max &nbsp;·&nbsp; Capital: USD ${cap.toLocaleString()}`;
+
+    setMetrics('constructor',[
+      {l:'Retorno Esperado',   v:`${portRet.toFixed(1)}% USD/año`},
+      {l:'Volatilidad',        v:`${portVol.toFixed(1)}%`},
+      {l:'Sharpe Estimado',    v:sharpe.toFixed(2)},
+      {l:'VaR 95% anual',      v:`${varP.toFixed(1)}%`},
+      {l:'Max DD estimado',    v:`${maxDD.toFixed(1)}%`},
+      {l:'Capital invertido',  v:`USD ${cap.toLocaleString()}`},
+      {l:'Retorno objetivo',   v:`${ret}% USD/año`},
+      {l:'Liquidez reservada', v:`${liq}%`},
+    ]);
+
+    const colors=['#00D4AA','#4A9EFF','#FF6B6B','#FFD93D','#C77DFF'];
+    const catLabels=keys.map(k=>exp[k].label);
+    const catPcts=keys.map(k=>w[k]);
+    const catMontos=keys.map(k=>Math.round(cap*w[k]/100));
+
+    Plotly.newPlot('chart-constructor-pie',[{
+      type:'pie', labels:catLabels, values:catPcts, hole:0.45,
+      marker:{colors}, textinfo:'label+percent', textposition:'outside',
+      hovertemplate:'<b>%{label}</b><br>%{value}% · USD %{customdata:,}<extra></extra>',
+      customdata:catMontos,
+    }],{
+      paper_bgcolor:'transparent',plot_bgcolor:'transparent',showlegend:false,
+      font:{family:'IBM Plex Mono',color:'#E8EAF0',size:10},
+      margin:{t:30,b:30,l:20,r:20},
+      annotations:[{text:`USD<br>${cap.toLocaleString()}`,x:0.5,y:0.5,font:{size:12,color:'#00D4AA'},showarrow:false}]
+    },{responsive:true,displayModeBar:false});
+
+    Plotly.newPlot('chart-constructor-bubble',[
+      {type:'scatter',mode:'markers+text',
+       x:keys.map(k=>exp[k].vol), y:keys.map(k=>exp[k].ret),
+       text:keys.map(k=>exp[k].label.split(' ')[0]),
+       textposition:'top center',
+       marker:{size:keys.map(k=>w[k]*3),color:colors,opacity:0.8,line:{color:'rgba(255,255,255,.2)',width:1}},
+       hovertemplate:'<b>%{text}</b><br>Ret: %{y}% · Vol: %{x}%<extra></extra>',
+      },
+      {type:'scatter',mode:'markers+text',
+       x:[portVol], y:[portRet], text:['Cartera'], textposition:'top center',
+       marker:{size:[20],color:['#FFD93D'],symbol:'star',line:{color:'#fff',width:1}},
+       hovertemplate:'<b>Cartera</b><br>Ret: %{y:.1f}% · Vol: %{x:.1f}%<extra></extra>',
+      }
+    ],{
+      paper_bgcolor:'transparent',plot_bgcolor:'rgba(255,255,255,.02)',
+      xaxis:{title:'Volatilidad %',gridcolor:'rgba(255,255,255,.05)',color:'#8B90A0'},
+      yaxis:{title:'Retorno Esperado %',gridcolor:'rgba(255,255,255,.05)',color:'#8B90A0'},
+      font:{family:'IBM Plex Mono',color:'#E8EAF0',size:10},
+      margin:{t:20,b:50,l:50,r:20},showlegend:false,
+    },{responsive:true,displayModeBar:false});
+
+    // instruments table
+    const tbody=document.getElementById('tbody-constructor');
+    tbody.innerHTML='';
+    keys.forEach((k,ki)=>{
+      if(w[k]<=0) return;
+      const insts=instruments[k];
+      const montoTotal=Math.round(cap*w[k]/100);
+      const montoPerInst=Math.round(montoTotal/insts.length);
+      insts.forEach((inst,i)=>{
+        const tr=document.createElement('tr');
+        if(i===0){
+          const td=document.createElement('td');
+          td.rowSpan=insts.length;
+          td.innerHTML=`<span style="color:${colors[ki]};font-weight:bold">${exp[k].label}</span><br><small style="color:var(--text-dim)">${w[k]}% · USD ${montoTotal.toLocaleString()}</small>`;
+          tr.appendChild(td);
+        }
+        ['ticker','name','tipo','tir'].forEach(f=>{
+          const td=document.createElement('td');
+          td.style.color=f==='ticker'?'var(--accent)':'';
+          if(f==='ticker') td.style.fontWeight='bold';
+          td.textContent=inst[f];
+          tr.appendChild(td);
+        });
+        const tdM=document.createElement('td');
+        tdM.style.color=colors[ki];
+        tdM.textContent=`USD ${montoPerInst.toLocaleString()}`;
+        tr.appendChild(tdM);
+        tbody.appendChild(tr);
+      });
+    });
+
+    // warning if target return seems unreachable
+    const warnEl=document.getElementById('constructor-warning');
+    if(ret>portRet*1.3){
+      warnEl.style.display='block';
+      warnEl.textContent=`⚠️ Tu retorno objetivo (${ret}% USD/año) supera el retorno esperado de esta cartera (${portRet.toFixed(1)}% USD/año). Para alcanzarlo deberías aumentar exposición a activos de mayor riesgo (soberanos HD, ONs) o revisar el objetivo. Rendimientos esperados son estimativos y no garantizados.`;
+    } else { warnEl.style.display='none'; }
+
+    // Claude insight
+    const SYS=`Sos un estratega de mercados de capitales argentino, experto en BYMA. Respondés en español rioplatense, de forma directa y profesional. Citás riesgos concretos del contexto macro argentino (cepo, inflación, riesgo soberano, política fiscal).`;
+    const prompt=`El cliente tiene USD ${cap.toLocaleString()} para invertir.
+Perfil: ${perfilMap[obj]||obj}, horizonte ${horMap[hor]||hor}, tolerancia ${tol}% drawdown max.
+Retorno objetivo: ${ret}% USD/año. Liquidez necesaria: ${liq}% en 12 meses.
+Allocation resultante:
+${keys.map(k=>`- ${exp[k].label}: ${w[k]}% (USD ${Math.round(cap*w[k]/100).toLocaleString()})`).join('\n')}
+Retorno esperado blend: ${portRet.toFixed(1)}% · Volatilidad estimada: ${portVol.toFixed(1)}% · Sharpe: ${sharpe.toFixed(2)}
+Análisis en 4-5 oraciones: (1) coherencia del perfil con la allocation, (2) riesgos macro argentinos que monitorear, (3) ajuste táctico recomendado para el contexto actual.`;
+    setInsight('constructor','Analizando cartera con IA...');
+    try{ const ai=await callClaude(SYS,prompt); setInsight('constructor',ai); }
+    catch(_){ setInsight('constructor','(Insight no disponible - revisá tu configuración de API key)'); }
+
+    document.getElementById('ts-constructor').textContent=new Date().toLocaleString('es-AR');
+    document.getElementById('rt-constructor').textContent=' · '+obj.toUpperCase()+' '+hor.toUpperCase();
+    document.getElementById('constructor-resultado').style.display='flex';
+  }catch(e){ hideL(id); showE(id,e.message); return; }
+  hideL(id);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   37 — RESUMEN DE CARTERA
+   ════════════════════════════════════════════════════════════════ */
+async function runCartera(tickers){
+  const id='cartera';
+  showL(id);hideE(id);hideR(id);
+  try{
+    const period=document.getElementById('input-period')?.value||'2y';
+    const freq=document.getElementById('input-freq')?.value||'daily';
+    const annF=freq==='weekly'?52:252;
+    const rf=0.045;
+
+    // Pesos
+    const pesosRaw=document.getElementById('p-pesos').value.trim();
+    let w=pesosRaw
+      ?pesosRaw.split(',').map(v=>parseFloat(v.trim())/100)
+      :tickers.map(()=>1/tickers.length);
+    if(w.length!==tickers.length)w=tickers.map(()=>1/tickers.length);
+    const wSum=w.reduce((a,b)=>a+b,0);
+    w=w.map(x=>x/wSum);
+
+    const bench=(document.getElementById('p-bench').value.trim()||'SPY').toUpperCase();
+    const allTickers=[...tickers,bench];
+
+    // Descargar datos + calcular retornos
+    const allData={};
+    for(const t of allTickers){
+      const d=await fetchYahoo(t,period);
+      d.returns=d.close.map((c,i)=>i===0?0:(c-d.close[i-1])/d.close[i-1]);
+      allData[t]=d;
+    }
+
+    // Alinear fechas (intersección)
+    let dateSet=new Set(allData[tickers[0]].dates);
+    for(const t of allTickers)dateSet=new Set([...dateSet].filter(d=>new Set(allData[t].dates).has(d)));
+    const dates=[...dateSet].sort();
+    if(dates.length<30)throw new Error('Pocos datos en común entre los activos. Probá un período más corto.');
+
+    // Retornos alineados
+    const getAligned=t=>dates.map(dt=>{const idx=allData[t].dates.indexOf(dt);return idx>=0?allData[t].returns[idx]:0;});
+    const tickerRets=tickers.map(t=>getAligned(t));
+    const portRets=dates.map((_,i)=>tickers.reduce((s,_,ti)=>s+w[ti]*tickerRets[ti][i],0));
+    const benchRets=getAligned(bench);
+
+    // Métricas principales
+    const portMean=mean(portRets)*annF;
+    const portVol=std(portRets)*Math.sqrt(annF);
+    const sharpe=(portMean-rf)/portVol;
+    const downRets=portRets.filter(r=>r<0);
+    const downVol=downRets.length>1?std(downRets)*Math.sqrt(annF):portVol;
+    const sortino=(portMean-rf)/downVol;
+
+    // Max Drawdown
+    let peak=1,maxDD=0,maxDDDate='',eq=1;
+    portRets.forEach((r,i)=>{eq*=(1+r);if(eq>peak)peak=eq;const dd=(peak-eq)/peak;if(dd>maxDD){maxDD=dd;maxDDDate=dates[i];}});
+
+    // Beta, Alpha, Info Ratio
+    const benchVar=std(benchRets)**2||1;
+    const beta=cov(portRets,benchRets)/benchVar;
+    const benchMean=mean(benchRets)*annF;
+    const alpha=portMean-(rf+beta*(benchMean-rf));
+    const excessRets=portRets.map((r,i)=>r-benchRets[i]);
+    const trackErr=std(excessRets)*Math.sqrt(annF);
+    const infoRatio=trackErr>0?(portMean-benchMean)/trackErr:0;
+
+    // Equity curves (base 100)
+    const eqCurve=[100];let eqP=1;
+    portRets.forEach(r=>{eqP*=(1+r);eqCurve.push(+(eqP*100).toFixed(3));});
+    const eqBench=[100];let eqB=1;
+    benchRets.forEach(r=>{eqB*=(1+r);eqBench.push(+(eqB*100).toFixed(3));});
+    const eqDates=[dates[0],...dates];
+
+    // Rolling Sharpe (63d / 13w)
+    const rollW=freq==='weekly'?13:63;
+    const rollSharpe=portRets.map((_,i)=>{
+      if(i<rollW)return null;
+      const sl=portRets.slice(i-rollW,i);
+      const s=std(sl)*Math.sqrt(annF);
+      return s>0?(mean(sl)*annF-rf)/s:null;
+    });
+    const rsFiltered=rollSharpe.map((v,i)=>({v,d:dates[i]})).filter(x=>x.v!==null);
+
+    // Contribución al riesgo
+    const portStd2=std(portRets)**2||1;
+    const contribRisk=tickers.map((_,ti)=>+(w[ti]*cov(tickerRets[ti],portRets)/portStd2*100).toFixed(1));
+
+    // Distribución de retornos
+    const bins=40;
+    const sorted=[...portRets].sort((a,b)=>a-b);
+    const minR=sorted[0],maxR=sorted[sorted.length-1],binW=(maxR-minR)/bins||0.001;
+    const hist=Array(bins).fill(0);
+    portRets.forEach(r=>{const b=Math.min(bins-1,Math.floor((r-minR)/binW));hist[b]++;});
+    const binX=Array.from({length:bins},(_,i)=>+((minR+(i+0.5)*binW)*100).toFixed(2));
+
+    // Render
+    setHdr(id,tickers);
+    setMetrics(id,[
+      {label:'Retorno Anual',value:(portMean*100).toFixed(1)+'%',cls:portMean>=0?'pos':'neg'},
+      {label:'Volatilidad',value:(portVol*100).toFixed(1)+'%'},
+      {label:'Sharpe',value:sharpe.toFixed(2),cls:sharpe>=1?'pos':sharpe>=0?'':'neg'},
+      {label:'Sortino',value:sortino.toFixed(2),cls:sortino>=1?'pos':''},
+      {label:'Max Drawdown',value:(-maxDD*100).toFixed(1)+'%',cls:'neg',sub:maxDDDate},
+      {label:'Beta vs '+bench,value:beta.toFixed(2)},
+      {label:'Alpha Anual',value:(alpha*100).toFixed(1)+'%',cls:alpha>=0?'pos':'neg'},
+      {label:'Info. Ratio',value:infoRatio.toFixed(2),cls:infoRatio>=0?'pos':'neg'},
+    ]);
+
+    // Gráfico 1: Equity curve
+    Plotly.newPlot('chart-cartera-equity',[
+      {x:eqDates,y:eqCurve,name:'Portfolio',line:{color:C[0],width:2},type:'scatter'},
+      {x:eqDates,y:eqBench,name:bench,line:{color:C[1],width:1.5,dash:'dot'},type:'scatter'},
+    ],L({yaxis:{...PLT.yaxis,title:'Base 100'}}),CFG);
+
+    // Gráfico 2: Rolling Sharpe
+    Plotly.newPlot('chart-cartera-rollsharpe',[
+      {x:rsFiltered.map(x=>x.d),y:rsFiltered.map(x=>x.v),name:'Sharpe 3M',
+       line:{color:C[0]},type:'scatter',fill:'tozeroy',fillcolor:'rgba(0,212,170,0.07)'},
+      {x:[rsFiltered[0]?.d||dates[0],rsFiltered[rsFiltered.length-1]?.d||dates[dates.length-1]],
+       y:[1,1],name:'Sharpe=1',line:{color:C[2],dash:'dash',width:1},type:'scatter'},
+    ],L({yaxis:{...PLT.yaxis,title:'Sharpe rolling 3M'}}),CFG);
+
+    // Gráfico 3: Contribución al riesgo vs peso
+    Plotly.newPlot('chart-cartera-risk',[
+      {x:tickers,y:contribRisk,type:'bar',name:'% Contribución Riesgo',marker:{color:C[0]}},
+      {x:tickers,y:w.map(v=>+(v*100).toFixed(1)),type:'bar',name:'% Peso',marker:{color:C[1]}},
+    ],L({barmode:'group',yaxis:{...PLT.yaxis,title:'%'}}),CFG);
+
+    // Gráfico 4: Distribución de retornos
+    Plotly.newPlot('chart-cartera-dist',[
+      {x:binX,y:hist,type:'bar',name:'Retornos diarios',
+       marker:{color:binX.map(v=>v<0?'rgba(224,82,82,0.6)':'rgba(0,212,170,0.6)')}},
+    ],L({xaxis:{...PLT.xaxis,title:'Retorno diario %'},yaxis:{...PLT.yaxis,title:'Frecuencia'}}),CFG);
+
+    hideL(id);showR(id);
+
+    // Claude insight
+    callClaude(SYS,
+      `Portfolio: ${tickers.map((t,i)=>t+' '+Math.round(w[i]*100)+'%').join(' | ')} vs benchmark ${bench}.\n`+
+      `Retorno anual: ${(portMean*100).toFixed(1)}% | Vol: ${(portVol*100).toFixed(1)}% | Sharpe: ${sharpe.toFixed(2)} | Sortino: ${sortino.toFixed(2)}\n`+
+      `Max Drawdown: ${(-maxDD*100).toFixed(1)}% (${maxDDDate}) | Beta: ${beta.toFixed(2)} | Alpha: ${(alpha*100).toFixed(1)}% | IR: ${infoRatio.toFixed(2)}\n`+
+      `Contribución al riesgo por activo: ${tickers.map((t,i)=>t+' '+contribRisk[i]+'%').join(', ')}.\n`+
+      `Analizá si el Sharpe justifica el riesgo, si el alpha es genuino o ruido estadístico dado el historial, y qué activo concentra más riesgo del que sugiere su peso.`
+    ).then(txt=>setInsight(id,txt)).catch(()=>{});
+
+  }catch(e){
+    hideL(id);showE(id,e.message);
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────
    DISPATCHER PATCH — agregar módulos 22-32 al mapa
    ──────────────────────────────────────────────────────────────── */
-
 const extraModules = {
   'rsi':runRSI,'bollinger':runBollinger,'keltner':runKeltner,
   'obv':runOBV,'mfi':runMFI,'impulso':runImpulso,'aroon':runAroon,
-  'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios
+  'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios,'cartera':runCartera,'constructor':runConstructor
 };
-
 // Patch runAnalysis to also check extra modules
 const _origRun = runAnalysis;
 runAnalysis = function(){
@@ -1734,11 +2142,9 @@ runAnalysis = function(){
     _origRun();
   }
 };
-
 /* ────────────────────────────────────────────────────────────────
    BASE RUNNER — usando datos reales de Yahoo Finance
    ──────────────────────────────────────────────────────────────── */
-
 async function baseRunReal(id, tickers, computeFn){
   showL(id);hideE(id);hideR(id);
   try{
@@ -1755,7 +2161,6 @@ async function baseRunReal(id, tickers, computeFn){
     hideL(id);showE(id,e.message);throw e;
   }
 }
-
 /* ────────────────────────────────────────────────────────────────
    22 — RSI (Wilder smoothing)
    ──────────────────────────────────────────────────────────────── */
@@ -1774,7 +2179,6 @@ function calcRSI(close, period=14){
   }
   return rsi;
 }
-
 async function runRSI(tickers){
   await baseRunReal('rsi',tickers,async(id,dataArr)=>{
     const cont=document.getElementById('charts-rsi');cont.innerHTML='';
@@ -1802,7 +2206,6 @@ async function runRSI(tickers){
     setInsight('rsi',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    23 — BOLLINGER BANDS (MA20 ± 2σ)
    ──────────────────────────────────────────────────────────────── */
@@ -1840,7 +2243,6 @@ async function runBollinger(tickers){
     setInsight('bollinger',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    24 — KELTNER (fórmula original Chester Keltner 1960)
    ──────────────────────────────────────────────────────────────── */
@@ -1878,7 +2280,6 @@ async function runKeltner(tickers){
     setInsight('keltner',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    25 — OBV (vectorizado)
    ──────────────────────────────────────────────────────────────── */
@@ -1908,7 +2309,6 @@ async function runOBV(tickers){
     setInsight('obv',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    26 — MFI (Money Flow Index)
    ──────────────────────────────────────────────────────────────── */
@@ -1951,7 +2351,6 @@ async function runMFI(tickers){
     setInsight('mfi',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    27 — IMPULSO / MOMENTUM
    ──────────────────────────────────────────────────────────────── */
@@ -1982,7 +2381,6 @@ async function runImpulso(tickers){
     setInsight('impulso',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    28 — AROON (Chande, fórmula corregida argmax/argmin)
    ──────────────────────────────────────────────────────────────── */
@@ -2031,7 +2429,6 @@ async function runAroon(tickers){
     setInsight('aroon',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    29 — OAD (Oscilador de Acumulación — Williams)
    ──────────────────────────────────────────────────────────────── */
@@ -2069,7 +2466,6 @@ async function runOAD(tickers){
     setInsight('oad',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    30 — AUTOREGRESIÓN (Regresión Lineal ±2σ residuos)
    ──────────────────────────────────────────────────────────────── */
@@ -2110,12 +2506,10 @@ async function runAutoreg(tickers){
     setInsight('autoreg',insight);
   });
 }
-
 /* ────────────────────────────────────────────────────────────────
    31 — ESTADOS CONTABLES (FMP API)
    ──────────────────────────────────────────────────────────────── */
 const FMP_BASE='https://financialmodelingprep.com/stable';
-
 async function fmpFetch(endpoint, ticker, fmpKey, extra={}){
   const params=new URLSearchParams({symbol:ticker,apikey:fmpKey,limit:1,...extra});
   const res=await fetch(`${FMP_BASE}/${endpoint}?${params}`);
@@ -2124,7 +2518,6 @@ async function fmpFetch(endpoint, ticker, fmpKey, extra={}){
   if(!data||!data.length) return null;
   return data[0];
 }
-
 function fmtNum(v){
   if(v===null||v===undefined||isNaN(v))return '—';
   const abs=Math.abs(v);
@@ -2133,7 +2526,6 @@ function fmtNum(v){
   if(abs>=1e3)return (v/1e3).toFixed(1)+'K';
   return v.toFixed(2);
 }
-
 async function runEstados(tickers){
   showL('estados');hideE('estados');hideR('estados');
   try{
@@ -2195,7 +2587,6 @@ async function runEstados(tickers){
     hideL('estados');showR('estados');
   }catch(e){hideL('estados');showE('estados',e.message);}
 }
-
 /* ────────────────────────────────────────────────────────────────
    32 — PORTFOLIO RATIOS (FMP API)
    ──────────────────────────────────────────────────────────────── */
@@ -2248,8 +2639,6 @@ async function runRatios(tickers){
     hideL('ratios');showR('ratios');
   }catch(e){hideL('ratios');showE('ratios',e.message);}
 }
-
-
 /* ════════════════════════════════════════════════════════════════
    BACKTESTING — 4 estrategias portadas de los scripts Python
    (RSI mean-reversion · Medias Móviles · Momentum · Rebalanceo)
@@ -2257,7 +2646,6 @@ async function runRatios(tickers){
 /* ===== BT-CORE START (funciones puras, testeables sin DOM) ===== */
 const BT_COST = 0.0015;   // 15 bps por trade/turnover
 const BT_RF   = 0.045;    // tasa libre de riesgo anual
-
 function btPortfolio(dataArr){
   const L0 = Math.min(...dataArr.map(d=>d.close.length));
   if(L0 < 30) throw new Error('Pocos datos para el backtest. Probá un período más largo.');
@@ -2268,7 +2656,6 @@ function btPortfolio(dataArr){
   return {dates, port, closes, L:L0};
 }
 const btLogRets = p => p.map((v,i)=> i===0 ? 0 : Math.log(v/p[i-1]));
-
 function btEquity(rets, kind){
   const eq=[1];
   for(let i=1;i<rets.length;i++) eq.push(kind==='log' ? eq[i-1]*Math.exp(rets[i]) : eq[i-1]*(1+rets[i]));
@@ -2406,7 +2793,6 @@ function btRebalanceo(dataArr){
   return {dates, rebEq, bhEq, retReb, retBh, turnovers, K};
 }
 /* ===== BT-CORE END ===== */
-
 /* ---- helpers de render ---- */
 function btFillTable(id, s, b){
   const fmtP=v=>isNaN(v)?'—':(v*100).toFixed(2)+'%';
@@ -2441,7 +2827,6 @@ function btPlotSignals(id, dates, price, buys, sells, extra){
   traces.push({x:sells.map(i=>dates[i]),y:sells.map(i=>price[i]),mode:'markers',name:'Venta',marker:{color:'#E05252',size:8,symbol:'triangle-down'}});
   Plotly.newPlot('sig-'+id,traces,L(),CFG);
 }
-
 /* ---- módulos ---- */
 async function runBTRSI(tickers){
   await baseRunReal('bt-rsi',tickers,async(id,dataArr)=>{
@@ -2525,7 +2910,6 @@ async function runBTReb(tickers){
     setInsight(id,insight);
   });
 }
-
 /* ---- inyección de UI (sidebar + paneles) ---- */
 function btMakePanel(id, title, desc, thirdTitle){
   const panel=document.createElement('div');
@@ -2570,10 +2954,8 @@ function btInjectUI(){
 }
 btInjectUI();
 if(typeof extraModules!=='undefined'){
-  extraModules['bt-rsi']=runBTRSI; extraModules['bt-mm']=runBTMM; extraModules['bt-mom']=runBTMom; extraModules['bt-reb']=runBTReb;
+  extraModules['bt-rsi']=runBTRSI; extraModules['bt-mm']=runBTMM; extraModules['bt-mom']=runBTMom; extraModules['bt-reb']=runBTReb; extraModules['cartera']=runCartera; extraModules['constructor']=runConstructor;
 }
-
-
 /* ============ MULTI-SELECCION DE INDICADORES + CONCLUSION INTEGRADA ============ */
 (function(){
   const ALL = {
@@ -2586,13 +2968,11 @@ if(typeof extraModules!=='undefined'){
     'rsi':runRSI,'bollinger':runBollinger,'keltner':runKeltner,
     'obv':runOBV,'mfi':runMFI,'impulso':runImpulso,'aroon':runAroon,
     'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios,
-    'bt-rsi':runBTRSI,'bt-mm':runBTMM,'bt-mom':runBTMom,'bt-reb':runBTReb
+    'bt-rsi':runBTRSI,'bt-mm':runBTMM,'bt-mom':runBTMom,'bt-reb':runBTReb,'cartera':runCartera,'constructor':runConstructor
   };
   const selected = new Set();
   let countEl = null;
-
   const SYS_CONCL = 'Sos analista cuantitativo senior. Recibis varios analisis tecnicos/cuantitativos individuales sobre los mismos activos y tu tarea es INTEGRARLOS en una unica conclusion final. No repitas cada analisis por separado: sintetiza. Marca donde las senales CONVERGEN y donde se CONTRADICEN, da una lectura global de riesgo/oportunidad y, si corresponde, una recomendacion accionable con su nivel de confianza. Respondes en espanol, conciso y tecnico. Usa HTML embebido: <p>, <strong>, <ul><li>. Sin markdown. Maximo 4 parrafos cortos.';
-
   function refresh(){
     const btn=document.getElementById('btn-run');
     if(btn) btn.textContent = selected.size>0 ? ('▶ EJECUTAR ('+selected.size+')') : '▶ EJECUTAR';
@@ -2607,7 +2987,6 @@ if(typeof extraModules!=='undefined'){
     refresh();
   }
   function navLabel(id){ const n=document.querySelector('#nav-'+id+' .nav-text'); return n?n.textContent.trim():id; }
-
   function getConclBox(){
     let box=document.getElementById('multi-conclusion');
     if(!box){
@@ -2620,7 +2999,6 @@ if(typeof extraModules!=='undefined'){
   function showConclLoading(){ const box=getConclBox(); box.className='multi-conclusion loading-state'; box.style.display='block'; box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">Integrando los analisis seleccionados...</div>'; }
   function renderConcl(htmlStr){ const box=getConclBox(); box.className='multi-conclusion'; box.style.display='block'; box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">'+htmlStr+'</div>'; }
   function hideConcl(){ const box=document.getElementById('multi-conclusion'); if(box) box.style.display='none'; }
-
   document.querySelectorAll('.nav-item').forEach(item=>{
     const id=(item.id||'').replace(/^nav-/,'');
     if(!ALL[id]) return;
@@ -2633,7 +3011,6 @@ if(typeof extraModules!=='undefined'){
     });
     item.insertBefore(cb, item.firstChild);
   });
-
   const runBtn=document.getElementById('btn-run');
   if(runBtn&&runBtn.parentNode){
     const banner=document.createElement('div'); banner.className='multi-banner';
@@ -2643,9 +3020,7 @@ if(typeof extraModules!=='undefined'){
     banner.appendChild(countEl); banner.appendChild(clr);
     runBtn.parentNode.insertBefore(banner, runBtn.nextSibling);
   }
-
   if(typeof switchPanel==='function'){ const prevSwitch=switchPanel; switchPanel=function(id){ hideConcl(); return prevSwitch(id); }; }
-
   const prevRun=runAnalysis;
   runAnalysis=async function(){
     if(selected.size===0){ hideConcl(); return prevRun(); }
@@ -2683,7 +3058,6 @@ if(typeof extraModules!=='undefined'){
   };
   refresh();
 })();
-
 </script>
 </body>
 </html>
