@@ -161,8 +161,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 .multi-conclusion{margin:18px 20px 0;background:linear-gradient(180deg,rgba(245,166,35,.09),rgba(245,166,35,.02));border:1px solid rgba(245,166,35,.35);border-left:3px solid var(--accent2);border-radius:8px;padding:16px 20px}
 .multi-conclusion h3{font-family:var(--mono);font-size:11px;color:var(--accent2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
 .multi-conclusion .mc-body{font-size:13px;color:var(--text);line-height:1.75}
-.multi-conclusion .mc-body p{margin-bottom:8px}
-.multi-conclusion .mc-body p:last-child{margin-bottom:0}
+.multi-conclusion .mc-body p{margin-bottom:8px}.multi-conclusion .mc-body p:last-child{margin-bottom:0}
 .multi-conclusion .mc-body strong{color:var(--text-hi)}
 .multi-conclusion .mc-body ul{padding-left:16px;margin-bottom:8px}.multi-conclusion .mc-body li{margin-bottom:3px}
 .multi-conclusion.loading-state .mc-body{color:var(--text-dim);font-family:var(--mono);font-size:11px}
@@ -2251,6 +2250,330 @@ async function runRatios(tickers){
 }
 
 
+/* ════════════════════════════════════════════════════════════════
+   BACKTESTING — 4 estrategias portadas de los scripts Python
+   (RSI mean-reversion · Medias Móviles · Momentum · Rebalanceo)
+   ════════════════════════════════════════════════════════════════ */
+/* ===== BT-CORE START (funciones puras, testeables sin DOM) ===== */
+const BT_COST = 0.0015;   // 15 bps por trade/turnover
+const BT_RF   = 0.045;    // tasa libre de riesgo anual
+
+function btPortfolio(dataArr){
+  const L0 = Math.min(...dataArr.map(d=>d.close.length));
+  if(L0 < 30) throw new Error('Pocos datos para el backtest. Probá un período más largo.');
+  const closes = dataArr.map(d=>d.close.slice(-L0));
+  const dates  = dataArr[0].dates.slice(-L0);
+  const port = [];
+  for(let i=0;i<L0;i++){ let s=0; for(let k=0;k<closes.length;k++) s+=closes[k][i]; port.push(s/closes.length); }
+  return {dates, port, closes, L:L0};
+}
+const btLogRets = p => p.map((v,i)=> i===0 ? 0 : Math.log(v/p[i-1]));
+
+function btEquity(rets, kind){
+  const eq=[1];
+  for(let i=1;i<rets.length;i++) eq.push(kind==='log' ? eq[i-1]*Math.exp(rets[i]) : eq[i-1]*(1+rets[i]));
+  return eq;
+}
+function btDrawdown(eq){
+  let peak=-Infinity; const dd=eq.map(v=>{ peak=Math.max(peak,v); return v/peak-1; });
+  return {dd, mdd:Math.min(...dd)};
+}
+function btMetrics(rets, kind){
+  const n=rets.length;
+  const eq=btEquity(rets,kind);
+  const years=n/252;
+  const cagr=Math.pow(eq[eq.length-1], 1/years)-1;
+  const m=rets.reduce((s,v)=>s+v,0)/n;
+  const sd=Math.sqrt(rets.reduce((s,v)=>s+(v-m)**2,0)/n);
+  const vol=sd*Math.sqrt(252);
+  const down=rets.filter(v=>v<0);
+  const dm=down.length?down.reduce((s,v)=>s+v,0)/down.length:0;
+  const dsd=down.length?Math.sqrt(down.reduce((s,v)=>s+(v-dm)**2,0)/down.length):0;
+  const dvol=dsd*Math.sqrt(252);
+  const {mdd,dd}=btDrawdown(eq);
+  const inmkt=rets.filter(v=>v!==0);
+  const hit=inmkt.length?inmkt.filter(v=>v>0).length/inmkt.length:NaN;
+  return {cagr, vol, sharpe: vol>0?(cagr-BT_RF)/vol:NaN, sortino: dvol>0?(cagr-BT_RF)/dvol:NaN,
+          mdd, calmar: mdd<0?cagr/Math.abs(mdd):NaN, hit, totalRet: eq[eq.length-1]-1, eq, dd};
+}
+function btRSIsimple(port, w){
+  w=w||14;
+  const delta=port.map((v,i)=>i===0?0:v-port[i-1]);
+  const gain=delta.map(v=>v>0?v:0);
+  const loss=delta.map(v=>v<0?-v:0);
+  const rsi=new Array(port.length).fill(NaN);
+  for(let i=w-1;i<port.length;i++){
+    const ag=gain.slice(i-w+1,i+1).reduce((s,v)=>s+v,0)/w;
+    const al=loss.slice(i-w+1,i+1).reduce((s,v)=>s+v,0)/w;
+    rsi[i]= al===0?100:100-100/(1+ag/al);
+  }
+  return rsi;
+}
+function btRSIstrategy(port){
+  const r=btLogRets(port);
+  const rsi=btRSIsimple(port,14);
+  const sigRaw=new Array(port.length).fill(0);
+  let pos=0;
+  for(let i=0;i<port.length;i++){
+    const v=rsi[i];
+    if(isNaN(v)){ sigRaw[i]=0; continue; }
+    if(pos===0 && v<30){ sigRaw[i]=1; pos=1; }
+    else if(pos===1 && v>70){ sigRaw[i]=-1; pos=0; }
+    else sigRaw[i]=0;
+  }
+  const sig=sigRaw.map((_,i)=> i===0?0:sigRaw[i-1]);
+  const position=new Array(port.length).fill(0);
+  let cur=0;
+  for(let i=0;i<port.length;i++){ if(sig[i]===1)cur=1; else if(sig[i]===-1)cur=0; position[i]=cur; }
+  const trades=position.map((p,i)=> i===0?0:Math.abs(p-position[i-1]));
+  const strat=position.map((p,i)=> p*r[i]-trades[i]*BT_COST);
+  const buys=[],sells=[];
+  for(let i=1;i<port.length;i++){ if(position[i]===1&&position[i-1]===0)buys.push(i); if(position[i]===0&&position[i-1]===1)sells.push(i); }
+  return {r, rsi, strat, position, buys, sells};
+}
+function btMArun(port, ma1, ma2){
+  const r=btLogRets(port);
+  const sma=port.map((_,i)=> i<ma1-1?NaN:port.slice(i-ma1+1,i+1).reduce((s,v)=>s+v,0)/ma1);
+  const lma=port.map((_,i)=> i<ma2-1?NaN:port.slice(i-ma2+1,i+1).reduce((s,v)=>s+v,0)/ma2);
+  const sigRaw=port.map((_,i)=> (isNaN(sma[i])||isNaN(lma[i]))?NaN:(sma[i]>lma[i]?1:-1));
+  const sig=sigRaw.map((_,i)=> i===0?NaN:sigRaw[i-1]);
+  const strat=[];
+  for(let i=0;i<port.length;i++){
+    const s=sig[i];
+    if(isNaN(s)){ strat.push(0); continue; }
+    const g=s*r[i];
+    const tr=(i>0&&!isNaN(sig[i-1]))?Math.abs(s-sig[i-1])/2:0;
+    strat.push(g-tr*BT_COST);
+  }
+  return {r, sma, lma, sig, strat};
+}
+function btMAtotal(port, ma1, ma2){ return Math.exp(btMArun(port,ma1,ma2).strat.reduce((s,v)=>s+v,0))-1; }
+function btMAoptimize(port){
+  const n=port.length; let best=null;
+  for(let ma1=10;ma1<=90;ma1+=10){
+    for(let ma2=100;ma2<=240;ma2+=10){
+      if(ma1>=ma2) continue;
+      if(ma2>=n-5) continue;
+      const ret=btMAtotal(port,ma1,ma2);
+      if(best===null||ret>best.ret) best={ma1,ma2,ret};
+    }
+  }
+  if(!best) throw new Error('Período demasiado corto para optimizar medias móviles. Probá 3y o 5y.');
+  return best;
+}
+function btMomStrategy(port, w){
+  w=w||126;
+  if(port.length<=w+10) throw new Error('Momentum necesita ~6 meses extra de datos. Probá período 2y o más.');
+  const r=btLogRets(port);
+  const mom=port.map((_,i)=> i<w?NaN:(port[i]/port[i-w]-1));
+  const sigRaw=mom.map(v=> isNaN(v)?0:(v>0?1:v<0?-1:0));
+  const sig=sigRaw.map((_,i)=> i===0?0:sigRaw[i-1]);
+  const position=new Array(port.length).fill(0);
+  let cur=0;
+  for(let i=0;i<port.length;i++){ if(sig[i]===1)cur=1; else if(sig[i]===-1)cur=-1; position[i]=cur; }
+  const trades=position.map((p,i)=> i===0?0:Math.abs(p-position[i-1])/2);
+  const strat=position.map((p,i)=> p*r[i]-trades[i]*BT_COST);
+  const buys=[],sells=[];
+  for(let i=1;i<port.length;i++){ if(position[i]===1&&position[i-1]!==1)buys.push(i); if(position[i]===-1&&position[i-1]!==-1)sells.push(i); }
+  return {r, mom, strat, position, buys, sells};
+}
+function btRebalanceo(dataArr){
+  const L0=Math.min(...dataArr.map(d=>d.close.length));
+  const closes=dataArr.map(d=>d.close.slice(-L0));
+  const dates=dataArr[0].dates.slice(-L0);
+  const K=closes.length, w=1/K;
+  const monthOf=d=>d.slice(0,7);
+  let hv=closes.map(()=>w);
+  const rebEq=[1]; const turnovers=[];
+  for(let i=1;i<L0;i++){
+    for(let k=0;k<K;k++){ const ret=closes[k][i]/closes[k][i-1]-1; hv[k]=hv[k]*(1+ret); }
+    let total=hv.reduce((s,v)=>s+v,0);
+    const isRebal = (i<L0-1) && (monthOf(dates[i])!==monthOf(dates[i+1]));
+    if(isRebal){
+      const pesos=hv.map(v=>v/total);
+      const turnover=pesos.reduce((s,v)=>s+Math.abs(v-w),0);
+      const cost=turnover*total*BT_COST;
+      const net=total-cost;
+      hv=hv.map(()=>w*net); total=net;
+      turnovers.push({date:dates[i], turnover});
+    }
+    rebEq.push(total);
+  }
+  let bh=closes.map(()=>w); const bhEq=[1];
+  for(let i=1;i<L0;i++){ for(let k=0;k<K;k++){ const ret=closes[k][i]/closes[k][i-1]-1; bh[k]=bh[k]*(1+ret); } bhEq.push(bh.reduce((s,v)=>s+v,0)); }
+  const retReb=rebEq.map((v,i)=> i===0?0:v/rebEq[i-1]-1);
+  const retBh =bhEq.map((v,i)=> i===0?0:v/bhEq[i-1]-1);
+  return {dates, rebEq, bhEq, retReb, retBh, turnovers, K};
+}
+/* ===== BT-CORE END ===== */
+
+/* ---- helpers de render ---- */
+function btFillTable(id, s, b){
+  const fmtP=v=>isNaN(v)?'—':(v*100).toFixed(2)+'%';
+  const fmtN=v=>isNaN(v)?'—':v.toFixed(2);
+  const rows=[
+    ['CAGR', fmtP(s.cagr), fmtP(b.cagr)],
+    ['Vol Anual', fmtP(s.vol), fmtP(b.vol)],
+    ['Sharpe', fmtN(s.sharpe), fmtN(b.sharpe)],
+    ['Sortino', fmtN(s.sortino), fmtN(b.sortino)],
+    ['Max Drawdown', fmtP(s.mdd), fmtP(b.mdd)],
+    ['Calmar', fmtN(s.calmar), fmtN(b.calmar)],
+    ['Hit Ratio', fmtP(s.hit), fmtP(b.hit)],
+    ['Retorno Total', fmtP(s.totalRet), fmtP(b.totalRet)],
+  ];
+  document.getElementById('tbody-'+id).innerHTML=rows.map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td></tr>').join('');
+}
+function btPlotEquity(id, dates, eqS, eqB){
+  Plotly.newPlot('eq-'+id,[
+    {x:dates,y:eqS,type:'scatter',mode:'lines',name:'Estrategia',line:{color:'#00D4AA',width:1.8}},
+    {x:dates,y:eqB,type:'scatter',mode:'lines',name:'Buy & Hold',line:{color:'#F5A623',width:1.4,dash:'dash'}},
+  ],L({yaxis:{...PLT.yaxis,title:'Crecimiento de $1'}}),CFG);
+}
+function btPlotDD(id, dates, dd){
+  Plotly.newPlot('dd-'+id,[
+    {x:dates,y:dd.map(v=>v*100),type:'scatter',mode:'lines',name:'Drawdown',line:{color:'#E05252',width:1},fill:'tozeroy',fillcolor:'rgba(224,82,82,.15)'},
+  ],L({yaxis:{...PLT.yaxis,title:'%'}}),CFG);
+}
+function btPlotSignals(id, dates, price, buys, sells, extra){
+  const traces=[{x:dates,y:price,type:'scatter',mode:'lines',name:'Portafolio',line:{color:'#7B8CDE',width:1.4}}];
+  if(extra) extra.forEach(t=>traces.push(t));
+  traces.push({x:buys.map(i=>dates[i]),y:buys.map(i=>price[i]),mode:'markers',name:'Compra',marker:{color:'#00D4AA',size:8,symbol:'triangle-up'}});
+  traces.push({x:sells.map(i=>dates[i]),y:sells.map(i=>price[i]),mode:'markers',name:'Venta',marker:{color:'#E05252',size:8,symbol:'triangle-down'}});
+  Plotly.newPlot('sig-'+id,traces,L(),CFG);
+}
+
+/* ---- módulos ---- */
+async function runBTRSI(tickers){
+  await baseRunReal('bt-rsi',tickers,async(id,dataArr)=>{
+    const {dates,port}=btPortfolio(dataArr);
+    const {r,strat,buys,sells}=btRSIstrategy(port);
+    const s=btMetrics(strat,'log'), b=btMetrics(r,'log');
+    setTimeout(()=>{ btPlotEquity(id,dates,s.eq,b.eq); btPlotDD(id,dates,s.dd); btPlotSignals(id,dates,port,buys,sells); },50);
+    setMetrics(id,[
+      {label:'CAGR estrat.',value:(s.cagr*100).toFixed(1)+'%',cls:s.cagr>=0?'pos':'neg'},
+      {label:'Sharpe estrat.',value:isNaN(s.sharpe)?'—':s.sharpe.toFixed(2),cls:s.sharpe>=1?'pos':''},
+      {label:'Max DD',value:(s.mdd*100).toFixed(1)+'%',cls:'neg'},
+      {label:'Sharpe B&H',value:isNaN(b.sharpe)?'—':b.sharpe.toFixed(2)},
+    ]);
+    btFillTable(id,s,b);
+    const insight=await callClaude(SYS,'Backtest RSI mean-reversion (compra RSI<30, vende RSI>70, costo 15bps) sobre portafolio equiponderado de '+dataArr.map(d=>d.ticker).join(', ')+'. Estrategia: CAGR='+(s.cagr*100).toFixed(1)+'%, Sharpe='+s.sharpe.toFixed(2)+', MaxDD='+(s.mdd*100).toFixed(1)+'%, Hit='+(s.hit*100).toFixed(0)+'%. Buy&Hold: CAGR='+(b.cagr*100).toFixed(1)+'%, Sharpe='+b.sharpe.toFixed(2)+', MaxDD='+(b.mdd*100).toFixed(1)+'%. Analizá si la estrategia agrega valor vs comprar y mantener, el perfil de riesgo/drawdown y si la mean-reversion funcionó en esta ventana.');
+    setInsight(id,insight);
+  });
+}
+async function runBTMM(tickers){
+  await baseRunReal('bt-mm',tickers,async(id,dataArr)=>{
+    const {dates,port}=btPortfolio(dataArr);
+    const n=port.length;
+    const tn=Math.max(60,Math.floor(n*0.7));
+    const best=btMAoptimize(port.slice(0,tn));
+    const {r,sma,lma,sig,strat}=btMArun(port,best.ma1,best.ma2);
+    const s=btMetrics(strat,'log'), b=btMetrics(r,'log');
+    const buys=[],sells=[];
+    for(let i=1;i<n;i++){ if(!isNaN(sig[i])&&!isNaN(sig[i-1])&&sig[i]!==sig[i-1]){ if(sig[i]>0)buys.push(i); else sells.push(i); } }
+    setTimeout(()=>{
+      btPlotEquity(id,dates,s.eq,b.eq); btPlotDD(id,dates,s.dd);
+      btPlotSignals(id,dates,port,buys,sells,[
+        {x:dates,y:sma,type:'scatter',mode:'lines',name:'SMA '+best.ma1,line:{color:'#00D4AA',width:1}},
+        {x:dates,y:lma,type:'scatter',mode:'lines',name:'LMA '+best.ma2,line:{color:'#F5A623',width:1,dash:'dash'}},
+      ]);
+    },50);
+    setMetrics(id,[
+      {label:'Par óptimo (IS)',value:'SMA'+best.ma1+'/LMA'+best.ma2},
+      {label:'CAGR estrat.',value:(s.cagr*100).toFixed(1)+'%',cls:s.cagr>=0?'pos':'neg'},
+      {label:'Sharpe estrat.',value:isNaN(s.sharpe)?'—':s.sharpe.toFixed(2),cls:s.sharpe>=1?'pos':''},
+      {label:'Max DD',value:(s.mdd*100).toFixed(1)+'%',cls:'neg'},
+    ]);
+    btFillTable(id,s,b);
+    const insight=await callClaude(SYS,'Backtest trend-following por cruce de medias móviles. Parámetros optimizados in-sample (primer 70%): SMA='+best.ma1+', LMA='+best.ma2+'. Portafolio equiponderado de '+dataArr.map(d=>d.ticker).join(', ')+'. Estrategia: CAGR='+(s.cagr*100).toFixed(1)+'%, Sharpe='+s.sharpe.toFixed(2)+', MaxDD='+(s.mdd*100).toFixed(1)+'%. Buy&Hold: CAGR='+(b.cagr*100).toFixed(1)+'%, Sharpe='+b.sharpe.toFixed(2)+'. ¿El trend-following superó al buy&hold ajustado por riesgo? Comentá el riesgo de overfitting por la optimización y el efecto de la rotación/costos.');
+    setInsight(id,insight);
+  });
+}
+async function runBTMom(tickers){
+  await baseRunReal('bt-mom',tickers,async(id,dataArr)=>{
+    const {dates,port}=btPortfolio(dataArr);
+    const {r,strat,buys,sells}=btMomStrategy(port,126);
+    const s=btMetrics(strat,'log'), b=btMetrics(r,'log');
+    setTimeout(()=>{ btPlotEquity(id,dates,s.eq,b.eq); btPlotDD(id,dates,s.dd); btPlotSignals(id,dates,port,buys,sells); },50);
+    setMetrics(id,[
+      {label:'CAGR estrat.',value:(s.cagr*100).toFixed(1)+'%',cls:s.cagr>=0?'pos':'neg'},
+      {label:'Sharpe estrat.',value:isNaN(s.sharpe)?'—':s.sharpe.toFixed(2),cls:s.sharpe>=1?'pos':''},
+      {label:'Max DD',value:(s.mdd*100).toFixed(1)+'%',cls:'neg'},
+      {label:'Sharpe B&H',value:isNaN(b.sharpe)?'—':b.sharpe.toFixed(2)},
+    ]);
+    btFillTable(id,s,b);
+    const insight=await callClaude(SYS,'Backtest Momentum (señal por signo del retorno acumulado a 126 días, largo/corto, costo 15bps) sobre portafolio equiponderado de '+dataArr.map(d=>d.ticker).join(', ')+'. Estrategia: CAGR='+(s.cagr*100).toFixed(1)+'%, Sharpe='+s.sharpe.toFixed(2)+', MaxDD='+(s.mdd*100).toFixed(1)+'%. Buy&Hold: CAGR='+(b.cagr*100).toFixed(1)+'%, Sharpe='+b.sharpe.toFixed(2)+'. Analizá si el momentum capturó tendencias, el comportamiento en los giros de mercado y el costo de la rotación.');
+    setInsight(id,insight);
+  });
+}
+async function runBTReb(tickers){
+  await baseRunReal('bt-reb',tickers,async(id,dataArr)=>{
+    if(dataArr.length<2) throw new Error('El rebalanceo necesita al menos 2 activos.');
+    const R=btRebalanceo(dataArr);
+    const s=btMetrics(R.retReb,'simple'), b=btMetrics(R.retBh,'simple');
+    setTimeout(()=>{
+      btPlotEquity(id,R.dates,R.rebEq,R.bhEq); btPlotDD(id,R.dates,btDrawdown(R.rebEq).dd);
+      Plotly.newPlot('sig-'+id,[{x:R.turnovers.map(t=>t.date),y:R.turnovers.map(t=>+(t.turnover*100).toFixed(2)),type:'bar',name:'Turnover %',marker:{color:'#7B8CDE'}}],L({yaxis:{...PLT.yaxis,title:'Turnover %'}}),CFG);
+    },50);
+    setMetrics(id,[
+      {label:'CAGR rebal.',value:(s.cagr*100).toFixed(1)+'%',cls:s.cagr>=0?'pos':'neg'},
+      {label:'Sharpe rebal.',value:isNaN(s.sharpe)?'—':s.sharpe.toFixed(2),cls:s.sharpe>=1?'pos':''},
+      {label:'CAGR B&H',value:(b.cagr*100).toFixed(1)+'%'},
+      {label:'# Rebalanceos',value:String(R.turnovers.length)},
+    ]);
+    btFillTable(id,s,b);
+    const insight=await callClaude(SYS,'Backtest estrategia pasiva con rebalanceo mensual a pesos iguales vs buy&hold (costo 15bps por turnover) sobre '+dataArr.map(d=>d.ticker).join(', ')+'. Rebalanceo: CAGR='+(s.cagr*100).toFixed(1)+'%, Sharpe='+s.sharpe.toFixed(2)+', MaxDD='+(s.mdd*100).toFixed(1)+'%. Buy&Hold: CAGR='+(b.cagr*100).toFixed(1)+'%, Sharpe='+b.sharpe.toFixed(2)+', MaxDD='+(b.mdd*100).toFixed(1)+'%. Hubo '+R.turnovers.length+' rebalanceos. ¿El rebalanceo mejoró el perfil riesgo/retorno (rebalancing bonus) o el costo se comió el beneficio? Comentá el portfolio drift.');
+    setInsight(id,insight);
+  });
+}
+
+/* ---- inyección de UI (sidebar + paneles) ---- */
+function btMakePanel(id, title, desc, thirdTitle){
+  const panel=document.createElement('div');
+  panel.className='panel'; panel.id='panel-'+id;
+  panel.innerHTML=''
+   +'<div class="loading" id="loading-'+id+'"><div class="loader-bar"><div class="loader-fill"></div></div><div class="loading-txt">DESCARGANDO DATOS · CORRIENDO BACKTEST...</div></div>'
+   +'<div class="err-box" id="error-'+id+'"></div>'
+   +'<div id="results-'+id+'" style="display:none;flex-direction:column;gap:14px">'
+   +'<div class="res-header"><span class="res-title">'+title+'<span class="res-ticker" id="rt-'+id+'"></span></span><span class="res-ts" id="ts-'+id+'"></span></div>'
+   +'<div class="panel-desc"><span class="panel-desc-label">qué muestra</span><span class="panel-desc-text">'+desc+'</span></div>'
+   +'<div class="metrics-row" id="metrics-'+id+'"></div>'
+   +'<div class="chart-grid">'
+   +'<div class="chart-box" style="grid-column:1/-1"><div class="chart-box-title">Curva de equity — Estrategia vs Buy &amp; Hold</div><div id="eq-'+id+'" style="height:320px"></div></div>'
+   +'<div class="chart-box"><div class="chart-box-title">Drawdown underwater</div><div id="dd-'+id+'" style="height:260px"></div></div>'
+   +'<div class="chart-box"><div class="chart-box-title">'+thirdTitle+'</div><div id="sig-'+id+'" style="height:260px"></div></div>'
+   +'</div>'
+   +'<div class="chart-box"><div class="chart-box-title">Métricas · Estrategia vs Buy &amp; Hold</div>'
+   +'<table class="data-table"><thead><tr><th>Métrica</th><th>Estrategia</th><th>Buy &amp; Hold</th></tr></thead><tbody id="tbody-'+id+'"></tbody></table></div>'
+   +'<div class="insight-box"><h3>⬡ Interpretación · Claude</h3><div class="insight-content" id="insight-'+id+'">—</div></div>'
+   +'</div>';
+  return panel;
+}
+function btNav(id,icon,text,tag,tip){
+  return '<div class="nav-item" id="nav-'+id+'" onclick="switchPanel(\''+id+'\')"><span class="nav-icon">'+icon+'</span><span class="nav-text">'+text+'</span><span class="nav-tag">'+tag+'</span><span class="nav-tooltip">'+tip+'</span></div>';
+}
+function btInjectUI(){
+  const main=document.querySelector('main.main');
+  const sidebar=document.querySelector('nav.sidebar');
+  if(!main||!sidebar) return;
+  main.appendChild(btMakePanel('bt-rsi','Backtest · RSI Mean-Reversion','Compra cuando el RSI cae por debajo de 30 y vende cuando supera 70, sobre un portafolio equiponderado. Equity vs Buy &amp; Hold, drawdown underwater, señales y métricas. Costo 15bps.','Portafolio + señales de compra/venta'));
+  main.appendChild(btMakePanel('bt-mm','Backtest · Cruce de Medias Móviles','Trend-following: largo si SMA>LMA, corto en caso contrario. El par (SMA/LMA) se optimiza in-sample sobre el 70% inicial. Equity vs Buy &amp; Hold, drawdown y medias.','Portafolio + SMA/LMA + señales'));
+  main.appendChild(btMakePanel('bt-mom','Backtest · Momentum (126d)','Señal por el signo del retorno acumulado a 6 meses (Jegadeesh & Titman). Largo/corto. Equity vs Buy &amp; Hold, drawdown, señales y métricas. Costo 15bps.','Portafolio + señales long/short'));
+  main.appendChild(btMakePanel('bt-reb','Backtest · Rebalanceo Mensual','Estrategia pasiva: restaura los pesos iguales al final de cada mes vs buy &amp; hold. Equity, drawdown y turnover por rebalanceo. Costo 15bps por turnover.','Turnover por rebalanceo'));
+  const sec=document.createElement('div');
+  sec.className='sb-section';
+  sec.innerHTML='<div class="sb-label">Backtesting</div>'
+    +btNav('bt-rsi','◔','BT · RSI','33','Mean-reversion: compra sobreventa (RSI&lt;30), vende sobrecompra (RSI&gt;70).')
+    +btNav('bt-mm','✕','BT · Medias Móviles','34','Trend-following por cruce SMA/LMA con optimización in-sample de parámetros.')
+    +btNav('bt-mom','∆','BT · Momentum','35','Largo/corto según el signo del retorno acumulado a 126 días.')
+    +btNav('bt-reb','♻','BT · Rebalanceo','36','Pasiva: rebalanceo mensual a pesos iguales vs buy & hold.');
+  sidebar.appendChild(sec);
+}
+btInjectUI();
+if(typeof extraModules!=='undefined'){
+  extraModules['bt-rsi']=runBTRSI; extraModules['bt-mm']=runBTMM; extraModules['bt-mom']=runBTMom; extraModules['bt-reb']=runBTReb;
+}
+
+
 /* ============ MULTI-SELECCION DE INDICADORES + CONCLUSION INTEGRADA ============ */
 (function(){
   const ALL = {
@@ -2262,7 +2585,8 @@ async function runRatios(tickers){
     'cml-sim':runCMLSim,'cml-opt':runCMLOpt,'upside':runUpside,'upside-cap':runUpsideCap,
     'rsi':runRSI,'bollinger':runBollinger,'keltner':runKeltner,
     'obv':runOBV,'mfi':runMFI,'impulso':runImpulso,'aroon':runAroon,
-    'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios
+    'oad':runOAD,'autoreg':runAutoreg,'estados':runEstados,'ratios':runRatios,
+    'bt-rsi':runBTRSI,'bt-mm':runBTMM,'bt-mom':runBTMom,'bt-reb':runBTReb
   };
   const selected = new Set();
   let countEl = null;
@@ -2270,63 +2594,38 @@ async function runRatios(tickers){
   const SYS_CONCL = 'Sos analista cuantitativo senior. Recibis varios analisis tecnicos/cuantitativos individuales sobre los mismos activos y tu tarea es INTEGRARLOS en una unica conclusion final. No repitas cada analisis por separado: sintetiza. Marca donde las senales CONVERGEN y donde se CONTRADICEN, da una lectura global de riesgo/oportunidad y, si corresponde, una recomendacion accionable con su nivel de confianza. Respondes en espanol, conciso y tecnico. Usa HTML embebido: <p>, <strong>, <ul><li>. Sin markdown. Maximo 4 parrafos cortos.';
 
   function refresh(){
-    const btn = document.getElementById('btn-run');
+    const btn=document.getElementById('btn-run');
     if(btn) btn.textContent = selected.size>0 ? ('▶ EJECUTAR ('+selected.size+')') : '▶ EJECUTAR';
     if(countEl) countEl.textContent = selected.size>0 ? (selected.size+' seleccionados') : '';
-    const clr = document.getElementById('btn-clear-sel');
+    const clr=document.getElementById('btn-clear-sel');
     if(clr) clr.style.display = selected.size>0 ? 'inline-block' : 'none';
   }
-
   function clearSel(){
     selected.clear();
     document.querySelectorAll('.nav-check').forEach(c=>c.checked=false);
     document.querySelectorAll('.nav-item.selected').forEach(n=>n.classList.remove('selected'));
     refresh();
   }
+  function navLabel(id){ const n=document.querySelector('#nav-'+id+' .nav-text'); return n?n.textContent.trim():id; }
 
-  function navLabel(id){
-    const n=document.querySelector('#nav-'+id+' .nav-text');
-    return n ? n.textContent.trim() : id;
-  }
-
-  /* ---- caja de conclusion integrada ---- */
   function getConclBox(){
     let box=document.getElementById('multi-conclusion');
     if(!box){
-      box=document.createElement('div');
-      box.id='multi-conclusion';
-      box.className='multi-conclusion';
-      box.style.display='none';
-      const main=document.querySelector('main.main');
-      const ctrl=document.querySelector('.ctrl-bar');
-      if(main && ctrl) main.insertBefore(box, ctrl.nextSibling);
-      else if(main) main.insertBefore(box, main.firstChild);
+      box=document.createElement('div'); box.id='multi-conclusion'; box.className='multi-conclusion'; box.style.display='none';
+      const main=document.querySelector('main.main'); const ctrl=document.querySelector('.ctrl-bar');
+      if(main&&ctrl) main.insertBefore(box, ctrl.nextSibling); else if(main) main.insertBefore(box, main.firstChild);
     }
     return box;
   }
-  function showConclLoading(){
-    const box=getConclBox();
-    box.className='multi-conclusion loading-state';
-    box.style.display='block';
-    box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">Integrando los analisis seleccionados...</div>';
-  }
-  function renderConcl(htmlStr){
-    const box=getConclBox();
-    box.className='multi-conclusion';
-    box.style.display='block';
-    box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">'+htmlStr+'</div>';
-  }
+  function showConclLoading(){ const box=getConclBox(); box.className='multi-conclusion loading-state'; box.style.display='block'; box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">Integrando los analisis seleccionados...</div>'; }
+  function renderConcl(htmlStr){ const box=getConclBox(); box.className='multi-conclusion'; box.style.display='block'; box.innerHTML='<h3>⬡ Conclusion integrada · Claude</h3><div class="mc-body">'+htmlStr+'</div>'; }
   function hideConcl(){ const box=document.getElementById('multi-conclusion'); if(box) box.style.display='none'; }
 
-  /* ---- inyectar checkbox en cada indicador del menu ---- */
   document.querySelectorAll('.nav-item').forEach(item=>{
-    const id = (item.id||'').replace(/^nav-/,'');
+    const id=(item.id||'').replace(/^nav-/,'');
     if(!ALL[id]) return;
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.className = 'nav-check';
-    cb.title = 'Agregar a la seleccion multiple';
-    cb.addEventListener('click', function(e){
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.className='nav-check'; cb.title='Agregar a la seleccion multiple';
+    cb.addEventListener('click',function(e){
       e.stopPropagation();
       if(cb.checked) selected.add(id); else selected.delete(id);
       item.classList.toggle('selected', cb.checked);
@@ -2335,89 +2634,56 @@ async function runRatios(tickers){
     item.insertBefore(cb, item.firstChild);
   });
 
-  /* ---- contador + boton limpiar al lado de EJECUTAR ---- */
-  const runBtn = document.getElementById('btn-run');
-  if(runBtn && runBtn.parentNode){
-    const banner = document.createElement('div');
-    banner.className = 'multi-banner';
-    countEl = document.createElement('span');
-    countEl.className = 'multi-count';
-    const clr = document.createElement('button');
-    clr.id='btn-clear-sel'; clr.className='btn-clear-sel'; clr.type='button';
-    clr.textContent='✕ limpiar'; clr.style.display='none';
+  const runBtn=document.getElementById('btn-run');
+  if(runBtn&&runBtn.parentNode){
+    const banner=document.createElement('div'); banner.className='multi-banner';
+    countEl=document.createElement('span'); countEl.className='multi-count';
+    const clr=document.createElement('button'); clr.id='btn-clear-sel'; clr.className='btn-clear-sel'; clr.type='button'; clr.textContent='✕ limpiar'; clr.style.display='none';
     clr.addEventListener('click', clearSel);
     banner.appendChild(countEl); banner.appendChild(clr);
     runBtn.parentNode.insertBefore(banner, runBtn.nextSibling);
   }
 
-  /* ---- al navegar a un panel unico, ocultar la conclusion integrada ---- */
-  if(typeof switchPanel === 'function'){
-    const prevSwitch = switchPanel;
-    switchPanel = function(id){ hideConcl(); return prevSwitch(id); };
-  }
+  if(typeof switchPanel==='function'){ const prevSwitch=switchPanel; switchPanel=function(id){ hideConcl(); return prevSwitch(id); }; }
 
-  /* ---- override de runAnalysis ---- */
-  const prevRun = runAnalysis;
-  runAnalysis = async function(){
-    if(selected.size === 0){ hideConcl(); return prevRun(); }   // panel unico = comportamiento normal
-
-    const raw = document.getElementById('input-tickers').value.trim();
+  const prevRun=runAnalysis;
+  runAnalysis=async function(){
+    if(selected.size===0){ hideConcl(); return prevRun(); }
+    const raw=document.getElementById('input-tickers').value.trim();
     if(!raw){ alert('Ingresa al menos un ticker.'); return; }
     if(!apiKey){ alert('Configura la API key primero.'); return; }
-    const tickers = raw.split(/[\s,]+/).filter(Boolean).map(t=>t.toUpperCase());
-
-    const ids = [...selected];
+    const tickers=raw.split(/[\s,]+/).filter(Boolean).map(t=>t.toUpperCase());
+    const ids=[...selected];
     hideConcl();
     document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
     ids.forEach(id=>{ const p=document.getElementById('panel-'+id); if(p) p.classList.add('active'); });
-
-    const btn = document.getElementById('btn-run');
-    if(btn) btn.disabled = true;
-
-    // 1) correr cada indicador en secuencia
-    let done = 0;
+    const btn=document.getElementById('btn-run'); if(btn) btn.disabled=true;
+    let done=0;
     for(const id of ids){
       setStatus('⚡ procesando '+(++done)+'/'+ids.length+'...','s-warn');
-      const fn = ALL[id];
-      if(!fn) continue;
-      try { await fn(tickers); }
-      catch(e){ try{ showE(id, e.message); hideL(id); }catch(_){} }
+      const fn=ALL[id]; if(!fn) continue;
+      try{ await fn(tickers); }catch(e){ try{ showE(id,e.message); hideL(id); }catch(_){} }
     }
-
-    // 2) conclusion integrada (solo si hay 2 o mas indicadores)
-    if(ids.length >= 2){
+    if(ids.length>=2){
       setStatus('⬡ generando conclusion integrada...','s-warn');
       showConclLoading();
       try{
-        const parts = ids.map(id=>{
-          const el = document.getElementById('insight-'+id);
-          const txt = el ? el.textContent.trim() : '';
-          return (txt && txt !== '—' && txt.length>2) ? ('### '+navLabel(id)+'\n'+txt) : null;
-        }).filter(Boolean);
-
-        if(parts.length >= 1){
-          const usr = 'Activos analizados: '+tickers.join(', ')+'.\n\n'
-            + 'Estos son los analisis individuales de cada indicador seleccionado:\n\n'
-            + parts.join('\n\n')
-            + '\n\nIntegra TODO en una sola conclusion final: convergencias, divergencias, lectura global de riesgo/oportunidad y, si corresponde, recomendacion accionable con nivel de confianza.';
-          const out = await callClaude(SYS_CONCL, usr);
+        const parts=ids.map(id=>{ const el=document.getElementById('insight-'+id); const txt=el?el.textContent.trim():''; return (txt&&txt!=='—'&&txt.length>2)?('### '+navLabel(id)+'\n'+txt):null; }).filter(Boolean);
+        if(parts.length>=1){
+          const usr='Activos analizados: '+tickers.join(', ')+'.\n\nEstos son los analisis individuales de cada indicador seleccionado:\n\n'+parts.join('\n\n')+'\n\nIntegra TODO en una sola conclusion final: convergencias, divergencias, lectura global de riesgo/oportunidad y, si corresponde, recomendacion accionable con nivel de confianza.';
+          const out=await callClaude(SYS_CONCL, usr);
           renderConcl(out);
-          try{ getConclBox().scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){}
-        } else {
-          renderConcl('<p>No hay analisis con texto suficiente para integrar. Revisa que la API key este configurada y que los indicadores no hayan dado error.</p>');
-        }
-      }catch(e){
-        renderConcl('<p style="color:var(--danger)">No se pudo generar la conclusion integrada: '+e.message+'</p>');
-      }
+          try{ getConclBox().scrollIntoView({behavior:'smooth',block:'start'}); }catch(_){}
+        } else { renderConcl('<p>No hay analisis con texto suficiente para integrar. Revisa la API key y que los indicadores no hayan dado error.</p>'); }
+      }catch(e){ renderConcl('<p style="color:var(--danger)">No se pudo generar la conclusion integrada: '+e.message+'</p>'); }
     }
-
-    if(btn) btn.disabled = false;
+    if(btn) btn.disabled=false;
     setStatus('⬡ listo','s-ok');
   };
-
   refresh();
 })();
+
 </script>
 </body>
 </html>
